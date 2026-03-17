@@ -1,0 +1,23 @@
+// NEXUS Network Protocol — CHAT_MESSAGE (type: 0x0202)
+// Priority: A (Control). Direction: client → server.
+// Source: PRD.md §8.3. Format: Protobuf (ADR-006).
+//
+// Player-initiated text message. The server validates, applies rate limiting,
+// and broadcasts to all clients on the appropriate channel.
+
+syntax = "proto3";
+package nexus.protocol;
+
+enum ChatChannel {
+  LOCAL  = 0;  // Visible to players within spatial proximity (engine-defined radius).
+  GLOBAL = 1;  // Visible to all players on the node.
+  GROUP  = 2;  // Visible to members of the sender's current group.
+}
+
+message ChatMessage {
+  ChatChannel channel = 1;
+
+  // UTF-8 encoded message text.
+  // Server enforces maximum 512 bytes. Longer messages are rejected with ERROR.
+  string message = 2;
+}

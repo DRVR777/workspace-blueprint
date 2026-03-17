@@ -1,0 +1,20 @@
+// NEXUS Network Protocol — TICK_SYNC (type: 0x0004)
+// Priority: A (Metadata). Direction: server → client. Frequency: periodic.
+// Source: PRD.md §8.3. Format: Flatbuffers (ADR-006).
+//
+// Clients use TICK_SYNC to synchronize their local simulation clock with server
+// time. Must be processed before any entity interpolation calculations.
+
+namespace nexus.protocol;
+
+table TickSync {
+  message_version: uint16 = 1;
+
+  // Monotonically increasing server tick counter. Never wraps.
+  server_tick:     uint64 (required);
+
+  // Server wall-clock time in milliseconds since Unix epoch.
+  server_time_ms:  uint64 (required);
+}
+
+root_type TickSync;

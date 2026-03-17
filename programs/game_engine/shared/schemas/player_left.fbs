@@ -1,0 +1,24 @@
+// NEXUS Network Protocol — PLAYER_LEFT (type: 0x0006)
+// Priority: A (Metadata). Direction: server → client.
+// Source: PRD.md §8.3. Format: Flatbuffers (ADR-006).
+//
+// Sent to all clients in a node when a player leaves the node's domain.
+// Clients must despawn the entity with this entity_id immediately.
+// For NODE_TRANSFER reason: the player will reappear via PLAYER_JOINED
+// from the destination node — do not treat as a permanent departure.
+
+namespace nexus.protocol;
+
+enum PlayerLeftReason : uint8 {
+  Disconnect   = 0,  // Client disconnected (voluntary or network failure)
+  NodeTransfer = 1,  // Player handed off to a neighboring node
+  Death        = 2,  // Player entity destroyed (permadeath or respawn logic applies)
+}
+
+table PlayerLeft {
+  message_version: uint16 = 1;
+  entity_id:       uint32 (required);
+  reason:          PlayerLeftReason = Disconnect;
+}
+
+root_type PlayerLeft;

@@ -1,0 +1,33 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "edge-schema",
+  "title": "Graph Edge Declaration",
+  "description": "Schema for a single edge as declared in a file header. Used by the graph engine during crawl.",
+  "type": "object",
+  "required": ["source", "type", "target"],
+  "properties": {
+    "source": {
+      "type": "string",
+      "description": "File path of the declaring file, relative to workspace root."
+    },
+    "type": {
+      "type": "string",
+      "enum": ["requires", "instantiates", "enables", "contradicts", "refines"],
+      "description": "Semantic relationship from source to target."
+    },
+    "target": {
+      "type": "string",
+      "description": "File path of the referenced file, relative to workspace root."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["valid", "broken"],
+      "description": "Set by graph engine during resolution. valid = target exists. broken = target not found."
+    },
+    "note": {
+      "type": "string",
+      "description": "Optional human-readable note explaining the relationship. Max 120 characters."
+    }
+  },
+  "additionalProperties": false
+}

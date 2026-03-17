@@ -1,0 +1,67 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "quality-schema",
+  "title": "Workspace Quality Entry",
+  "description": "Schema for a single quality tracking record. Written by stage-05-update after each completed run. Used to compute avg_quality in REGISTRY.md.",
+  "type": "object",
+  "required": [
+    "entry_id",
+    "task_type",
+    "workspace_path",
+    "run_id",
+    "timestamp",
+    "quality_score",
+    "audit_pass_count",
+    "audit_fail_count",
+    "audit_skip_count"
+  ],
+  "properties": {
+    "entry_id": {
+      "type": "string",
+      "description": "Unique ID for this quality record. Format: quality-[task_type]-[sequence]. Example: quality-prd-intake-001"
+    },
+    "task_type": {
+      "type": "string",
+      "description": "The task_type value from REGISTRY.md this entry belongs to."
+    },
+    "workspace_path": {
+      "type": "string",
+      "description": "The workspace_path value from REGISTRY.md at the time of this run."
+    },
+    "run_id": {
+      "type": "string",
+      "description": "The run_id from the telemetry entry this quality record is derived from."
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 UTC timestamp of the run."
+    },
+    "quality_score": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 1,
+      "description": "PASS / (PASS + FAIL) from the run's audit flags. null if the stage had no audit flags."
+    },
+    "audit_pass_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of PASS results in the audit checklist for this run."
+    },
+    "audit_fail_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of FAIL results in the audit checklist for this run."
+    },
+    "audit_skip_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of SKIP results in the audit checklist for this run. Excluded from quality_score calculation."
+    },
+    "notes": {
+      "type": "string",
+      "description": "Optional. Free-text notes explaining the quality result. Max 200 characters."
+    }
+  },
+  "additionalProperties": false
+}

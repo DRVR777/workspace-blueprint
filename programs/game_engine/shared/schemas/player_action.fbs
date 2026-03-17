@@ -1,0 +1,43 @@
+// NEXUS Network Protocol — PLAYER_ACTION (type: 0x0200)
+// Priority: A (Metadata). Direction: client → server.
+// Source: PRD.md §8.3. Format: Flatbuffers (ADR-006).
+//
+// The primary input message. Every player-initiated action is sent as a
+// PLAYER_ACTION. The server validates, applies, and optionally acknowledges.
+//
+// If requires_ack is true, the server will reply with ACTION_ACKNOWLEDGMENT
+// containing this message's sequence_number. The client must retain the action
+// in a pending queue until the acknowledgment arrives or a timeout fires.
+
+namespace nexus.protocol;
+
+// Action type identifiers. Values 0x0000–0x00FF are reserved for core engine actions.
+// Values 0x0100–0xFFFF are available for world-specific action extensions.
+enum ActionType : uint16 {
+  Move        = 0x0000,
+  Interact    = 0x0001,
+  Build       = 0x0002,
+  Destroy     = 0x0003,
+  Communicate = 0x0004,
+  // 0x0005–0x00FF: reserved for future core actions.
+  // 0x0100+: world-extension action types, registered in the object type registry.
+}
+
+table PlayerAction {
+  message_version:  uint16 = 1;
+  action_type:      ActionType (required);
+
+  // Client-generated monotonically increasing sequence number.
+  // Matched by ACTION_ACKNOWLEDGMENT when requires_ack is true.
+  sequence_number:  uint32 (required);
+
+  // true  = server must send ACTION_ACKNOWLEDGMENT (permanent-consequence actions)
+  // false = fire-and-forget (movement, non-critical interactions)
+  requires_ack:     bool = false;
+
+  // Variable payload — structure defined by action_type.
+  // See the action type registry for per-action payload documentation.
+  payload: [uint8];
+}
+
+root_type PlayerAction;

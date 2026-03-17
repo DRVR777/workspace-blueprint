@@ -1,0 +1,38 @@
+// NEXUS Network Protocol — HANDSHAKE_RESPONSE (type: 0x0101)
+// Priority: A (Control). Direction: server → client.
+// Source: PRD.md §8.3. Format: Protobuf (ADR-006).
+//
+// Server response to client HANDSHAKE. If status is ACCEPTED, the fields
+// after status are populated and the game session begins. If REJECTED or
+// VERSION_MISMATCH, all other fields are zero/empty and the server closes
+// the connection after sending this message.
+
+syntax = "proto3";
+package nexus.protocol;
+
+enum HandshakeStatus {
+  ACCEPTED         = 0;
+  REJECTED         = 1;
+  VERSION_MISMATCH = 2;
+}
+
+message HandshakeResponse {
+  HandshakeStatus status = 1;
+
+  // Populated only when status = ACCEPTED.
+
+  // Ephemeral entity ID for this session (distinct from persistent player_id).
+  uint32 assigned_entity_id = 2;
+
+  // Player's spawn position in world space.
+  float initial_position_x = 3;
+  float initial_position_y = 4;
+  float initial_position_z = 5;
+
+  // Server engine version.
+  uint32 server_version = 6;
+
+  // World seed — used by the client for deterministic procedural generation.
+  // See ADR-014 for seed algorithm specification.
+  uint64 world_seed = 7;
+}

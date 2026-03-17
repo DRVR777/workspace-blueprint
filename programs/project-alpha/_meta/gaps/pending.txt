@@ -1,0 +1,4 @@
+# INFERENCE LOG — project-alpha scope
+# Format: [ISO-8601-timestamp] | [program] | [file-consulted] | inferred "[what]" — no file states this
+# Cross-project inferences → {root}/_meta/gaps/pending.txt instead
+# Do not edit existing entries. Only append.

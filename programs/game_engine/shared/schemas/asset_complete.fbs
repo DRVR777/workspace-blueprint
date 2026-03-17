@@ -1,0 +1,22 @@
+// NEXUS Network Protocol — ASSET_COMPLETE (type: 0x0301)
+// Priority: B (Assets). Direction: server → client.
+// Source: PRD.md §8.3. Format: Flatbuffers (ADR-006).
+//
+// Sent after the last ASSET_CHUNK for a given asset transfer. The client
+// must verify the checksum against its reassembled buffer before uploading
+// to GPU memory. On checksum failure, discard the buffer and re-request.
+
+namespace nexus.protocol;
+
+table AssetComplete {
+  message_version:   uint16 = 1;
+  object_type_id:    uint32 (required);
+  lod_tier:          uint8;
+  asset_version:     uint32 (required);
+  total_size_bytes:  uint32 (required);
+
+  // 4-byte CRC32 checksum of the fully reassembled asset buffer.
+  checksum:          [uint8];  // exactly 4 bytes
+}
+
+root_type AssetComplete;

@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.1.0",
+  "fields": {
+    "gap_id": "string — format: gap-[YYYY-MM-DD]-[slug]",
+    "detected_at": "ISO-8601 timestamp",
+    "detected_in": "path/to/folder/or/file",
+    "gap_type": "missing_composition | missing_bridge | shallow_node",
+    "description": "One sentence: what is absent.",
+    "evidence": "What triggered detection: agent observation, failed task, missing file",
+    "severity": "blocking | degrading | cosmetic",
+    "scope": "root | [project-name] — root = cross-project gap, project-name = internal to that project",
+    "proposed_expansion": "One sentence: what file or content would close this gap.",
+    "status": "open | in_progress | closed",
+    "closed_by": "path/to/new/file/that/closed/it — null if open"
+  },
+  "scope_rules": {
+    "root": "Gap spans two or more projects, or affects workspace-level infrastructure",
+    "[project-name]": "Gap is internal to one project — live in that project's _meta/gaps/"
+  }
+}

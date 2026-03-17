@@ -1,0 +1,22 @@
+# game_engine — Open Gaps
+# Format: [SEVERITY] GAP_ID | Description | Blocking
+# Last updated: 2026-03-14
+
+# ─── CLOSED ───────────────────────────────────────────────────────────────────
+# [CLOSED] GAP-001 | ADR-001 through ADR-006 resolved 2026-03-14
+# [CLOSED] GAP-009 | World seed: domain-warped fractal Simplex noise (ADR-014) accepted 2026-03-14
+# [CLOSED] GAP-011 | shared/schemas/ — all 16 schema files written 2026-03-14 (10 .fbs + 6 .proto)
+# [CLOSED] GAP-012 | HANDSHAKE gpu_caps field — added to handshake.proto per ADR-005 2026-03-14
+
+# ─── OPEN ─────────────────────────────────────────────────────────────────────
+
+# [CLOSED] GAP-002 | Shared contracts — world-state and simulation finalized 2026-03-14 (all 6 contracts now accepted)
+# [CLOSED] GAP-003 | Sub-program specs — CONTEXT.md written for all 4 Phase 0 sub-programs 2026-03-14
+# [CLOSED] GAP-014 | Spec review passed — all 4 Phase 0 sub-programs verified ready to build 2026-03-14 (spatial ✅ node-manager ✅ renderer ✅ local-simulation ✅)
+[MEDIUM] GAP-004 | Ticker log partition strategy not specified — how do we query by sector+time range? | Phase 3
+[MEDIUM] GAP-005 | Cross-region handoff latency budget not established — acceptable degradation during cross-cluster handoff unclear | Phase 4
+[MEDIUM] GAP-006 | In-world computer language not designed — ADR-010 open, no evaluation done | Phase 3
+[MEDIUM] GAP-013 | ADR-007 through ADR-013 still open — none block Phase 0 except ADR-009 (world graph replication strategy needed for Phase 2) | Phase 2
+[LOW] GAP-007 | Agent GOAP planner computational budget not defined — max nodes in A* search per tick? | Phase 3
+[LOW] GAP-008 | Impostor generation pipeline not specified — how are billboard images generated from geometry? | Phase 1
+[LOW] GAP-010 | Geographic region sizes not defined — how large is each continent-equivalent? | Phase 4

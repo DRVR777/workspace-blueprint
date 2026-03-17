@@ -1,0 +1,23 @@
+// NEXUS Network Protocol — ERROR (type: 0x01FF)
+// Priority: A (Control). Direction: server → client.
+// Source: PRD.md §8.3. Format: Protobuf (ADR-006).
+//
+// Sent when the server encounters a recoverable or fatal error. The client
+// must check error_code to determine whether to reconnect or surface the
+// error to the player.
+//
+// Fatal errors (error_code >= 0x8000): server closes connection after sending.
+// Recoverable errors (error_code < 0x8000): connection remains open.
+//
+// Error code registry is maintained in shared/contracts/error-codes.md (to be created).
+
+syntax = "proto3";
+package nexus.protocol;
+
+message Error {
+  // Error code. High bit (0x8000) set = fatal.
+  uint32 error_code = 1;
+
+  // Human-readable message — for logging and debug UI only. Not shown to players.
+  string message = 2;
+}

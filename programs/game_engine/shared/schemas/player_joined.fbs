@@ -1,0 +1,36 @@
+// NEXUS Network Protocol — PLAYER_JOINED (type: 0x0005)
+// Priority: A (Metadata). Direction: server → client.
+// Source: PRD.md §8.3. Format: Flatbuffers (ADR-006).
+//
+// Sent to all clients in a node when a new player enters the node's domain.
+// Contains the full initial entity state needed to instantiate the player
+// locally. Clients must create a new entity and begin interpolating from
+// the initial state.
+
+namespace nexus.protocol;
+
+table PlayerJoined {
+  message_version: uint16 = 1;
+
+  // Entity ID assigned to this player in this node's domain.
+  entity_id: uint32 (required);
+
+  // Initial world-space position.
+  position_x: float;
+  position_y: float;
+  position_z: float;
+
+  // Initial orientation quaternion — full float32 (not half-float, sent once only).
+  orientation_w: float = 1.0;
+  orientation_x: float = 0.0;
+  orientation_y: float = 0.0;
+  orientation_z: float = 0.0;
+
+  // Player's persistent ID (not the ephemeral entity_id).
+  player_id: uint64 (required);
+
+  // Display name — length capped at 32 bytes by the authentication system.
+  display_name: string;
+}
+
+root_type PlayerJoined;

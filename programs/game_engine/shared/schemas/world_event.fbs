@@ -1,0 +1,28 @@
+// NEXUS Network Protocol — WORLD_EVENT (type: 0x0003)
+// Priority: A (Metadata). Direction: server → client.
+// Source: PRD.md §8.3. Format: Flatbuffers (ADR-006).
+//
+// Broadcast when a world-level event occurs (explosion, weather change, zone activation,
+// etc.). The payload field is raw bytes whose structure is defined by event_type.
+// Consult the world event registry for per-event-type payload documentation.
+
+namespace nexus.protocol;
+
+table WorldEvent {
+  message_version: uint16 = 1;
+  event_type:      uint16 (required);
+
+  // World-space origin of the event.
+  origin_x: float;
+  origin_y: float;
+  origin_z: float;
+
+  // Radius of effect in world units. 0.0 = global event (no spatial bound).
+  radius: float = 0.0;
+
+  // Variable payload — structure defined by event_type.
+  // Clients that do not recognize event_type must silently discard this message.
+  payload: [uint8];
+}
+
+root_type WorldEvent;

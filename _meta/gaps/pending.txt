@@ -1,0 +1,33 @@
+# INFERENCE LOG — append entries below in this format:
+# [ISO-8601-timestamp] | [workspace] | [file-consulted] | inferred "[what]" — no file states this
+#
+# This file is read by the gap detection agent to produce formal gap objects.
+# Do not edit existing entries. Only append.
+
+[2026-03-13T00:01:00Z] | _meta | (instructions) | inferred "CLAUDE.md comment should be added proactively rather than waiting for a fresh session to confirm the failure" — no file states this
+[2026-03-13T00:02:00Z] | production/workflows/04-output | MANIFEST.md template | inferred "gap-001 reference in 04-output MANIFEST should point to _meta/gaps/ for full detail rather than self-describing the gap" — no file states this
+[2026-03-13T00:03:00Z] | _meta/gaps | gap-schema.json | inferred "pending.txt should be pre-seeded with Phase 1 execution inferences so the closed loop is demonstrably operational after first run" — no file states this
+[2026-03-13T00:04:00Z] | writing-room/docs | MANIFEST.md template | inferred "the 'Shared Dependency Warning' section in writing-room/docs/MANIFEST.md is structurally necessary even though it has no precedent in other MANIFEST files" — no file states this
+
+# --- TEST 3 SIMULATION: inferences from a writing-room auth blog post task ---
+[2026-03-13T00:10:00Z] | writing-room | voice.md | inferred "authentication best practices topic means OAuth, JWT, session management, and password hashing are the relevant sub-topics" — no file states this
+[2026-03-13T00:10:01Z] | writing-room | style-guide.md | inferred "a 'best practices' framing calls for a ranked or numbered structure rather than a narrative flow" — no file states this
+[2026-03-13T00:10:02Z] | writing-room | voice.md | inferred "2026 security threat landscape context (passkeys, phishing-resistant MFA) should inform the recommendations" — no file states this
+[2026-03-13T00:25:00Z] | writing-room/docs | style-guide.md + voice.md | inferred "the six content frames relevant to DevRel writing are: best practices, comparison/tradeoff, conceptual explainer, launch/announcement, troubleshooting, and case study" — no file enumerates these frames
+
+# --- self-review campaign: 2026-03-16 ---
+[2026-03-16T00:01:00Z] | workspace-root | campaigns/self-review/clarification.md | FIXED: deleted empty Windows artifacts (New folder/, New Text Document.txt, exmple.md) — P-25/P-22 violations
+[2026-03-16T00:02:00Z] | workspace-root | campaigns/self-review/clarification.md | FIXED: moved claudehist3-13-2026.txt to _archive/session-histories/ — unmanaged info leak resolved
+[2026-03-16T00:03:00Z] | _registry/REGISTRY.md | campaigns/self-review/clarification.md | FIXED: updated game-engine status scaffold→specced, added oracle row at specced — status was stale
+[2026-03-16T00:04:00Z] | _registry/REGISTRY.md | campaigns/self-review/clarification.md | FIXED: added REGISTRY↔MANIFEST sync rule — REGISTRY was diverging from MANIFEST with no protocol
+[2026-03-16T00:05:00Z] | _core/CONVENTIONS.md | campaigns/self-review/clarification.md | FIXED: added Pattern Tiers (4 tiers) to CONVENTIONS.md — 28 patterns had no progressive disclosure
+[2026-03-16T00:06:00Z] | _core/CONVENTIONS.md | campaigns/self-review/clarification.md | FIXED: added scope boundary to Fix-First rule P-22 — rule had no session scope limit
+[2026-03-16T00:07:00Z] | _core/CONVENTIONS.md | campaigns/self-review/clarification.md | FIXED: added blocking vs non-blocking threshold to ADR P-23 — strict reading would halt all sessions
+[2026-03-16T00:08:00Z] | _core/CONVENTIONS.md | campaigns/self-review/clarification.md | FIXED: added Terry Davis root CLAUDE.md exception + mechanical limitation note to P-20
+[2026-03-16T00:09:00Z] | workspace-root/MANIFEST.md | campaigns/self-review/clarification.md | FIXED: added campaigns/, _archive/, _bus/ to root MANIFEST What I Contain — folders were unregistered
+[2026-03-16T00:10:00Z] | _archive/ | campaigns/self-review/clarification.md | FIXED: created _archive/MANIFEST.md — folder existed without MANIFEST (P-25 violation)
+[2026-03-16T00:11:00Z] | _registry/REGISTRY.md | campaigns/self-review/clarification.md | inferred "REGISTRY quality tracking has no automated telemetry — all values null despite multiple completed sessions" — BAD-08 open, requires build work
+[2026-03-16T00:12:00Z] | _meta/runner.md | campaigns/self-review/clarification.md | inferred "leftOffHere.md has no mid-session checkpoint protocol — abrupt session end loses all state" — BAD-03 open, requires runner.md update
+[2026-03-16T00:13:00Z] | _meta/runner.md | campaigns/self-review/clarification.md | inferred "leftOffHere.md multi-agent merge is naming convention not protocol — concurrent writes corrupt state" — BAD-09 open, requires protocol file
+[2026-03-16T00:14:00Z] | leftOffHere.md | campaigns/self-review/clarification.md | inferred "leftOffHere.md contains absolute Windows paths — breaks on path change or machine move" — BAD-13 open, requires runner.md path abstraction rule
+[2026-03-16T00:15:00Z] | programs/_template/ | campaigns/self-review/clarification.md | inferred "campaigns/ folder missing from _template/ — every new project must discover this pattern ad-hoc" — BAD-14 open, requires template update

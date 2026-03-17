@@ -1,0 +1,66 @@
+// NEXUS Network Protocol — OBJECT_STATE_CHANGE (type: 0x0002)
+// Priority: A (Metadata). Direction: server → client.
+// Source: PRD.md §8.3. Format: Flatbuffers (ADR-006).
+//
+// Sent when a persistent world object changes position, a property value changes,
+// or an object is created or destroyed.
+//
+// The payload field is a FlatBuffers union — the active variant is determined
+// by change_type. Always check change_type before accessing payload.
+
+namespace nexus.protocol;
+
+enum ObjectChangeType : uint8 {
+  Position    = 0,  // Object moved — see PositionChangePayload
+  Property    = 1,  // A property value changed — see PropertyChangePayload
+  Destruction = 2,  // Object was destroyed — see DestructionPayload
+  Creation    = 3,  // New object created — see CreationPayload
+}
+
+table PositionChangePayload {
+  position_x:    float;
+  position_y:    float;
+  position_z:    float;
+  orientation_w: float;
+  orientation_x: float;
+  orientation_y: float;
+  orientation_z: float;
+}
+
+table PropertyChangePayload {
+  // Property name as defined in the object type schema.
+  property_name: string (required);
+  // Encoded value bytes. Type is determined by the property definition in the
+  // object type registry — do not interpret without consulting the type schema.
+  value: [uint8] (required);
+}
+
+table DestructionPayload {
+  // 0 = player_action, 1 = physics, 2 = world_event, 3 = admin, 255 = unknown
+  reason: uint8 = 255;
+}
+
+table CreationPayload {
+  type_id:     uint32 (required);
+  position_x:  float;
+  position_y:  float;
+  position_z:  float;
+  // Player ID, node ID, or 0 = world_seed generated.
+  created_by:  uint64 = 0;
+}
+
+union ObjectStatePayload {
+  PositionChangePayload,
+  PropertyChangePayload,
+  DestructionPayload,
+  CreationPayload,
+}
+
+table ObjectStateChange {
+  message_version: uint16 = 1;
+  object_id:       uint32 (required);
+  change_type:     ObjectChangeType;
+  payload:         ObjectStatePayload;
+}
+
+root_type ObjectStateChange;

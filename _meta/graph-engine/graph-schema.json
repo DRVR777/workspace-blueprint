@@ -1,0 +1,71 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "graph-schema",
+  "title": "Materialized Workspace Graph",
+  "description": "Output of the graph engine. Written to _meta/graph-engine/output/graph.json after every full rebuild.",
+  "type": "object",
+  "required": ["generated_at", "node_count", "edge_count", "broken_edge_count", "orphan_count", "nodes", "edges"],
+  "properties": {
+    "generated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 UTC timestamp of when this graph was built."
+    },
+    "node_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "edge_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Total edges including broken ones."
+    },
+    "broken_edge_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Edges where the target file does not exist."
+    },
+    "orphan_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Nodes with no incoming or outgoing valid edges (excluding known leaf patterns)."
+    },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "depth", "outgoing_edge_count", "incoming_edge_count"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "File path relative to workspace root."
+          },
+          "depth": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Folder depth from workspace root (0 = root files, 1 = first-level folder files, etc.)."
+          },
+          "outgoing_edge_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "incoming_edge_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "is_orphan": {
+            "type": "boolean",
+            "description": "true if this node has no valid incoming or outgoing edges and is not a known leaf file."
+          }
+        }
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "$ref": "edge-schema"
+      }
+    }
+  },
+  "additionalProperties": false
+}

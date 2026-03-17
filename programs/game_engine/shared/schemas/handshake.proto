@@ -1,0 +1,31 @@
+// NEXUS Network Protocol — HANDSHAKE (type: 0x0100)
+// Priority: A (Control). Direction: client → server.
+// Source: PRD.md §8.3. Format: Protobuf (ADR-006).
+//
+// First message sent by the client after establishing a WebSocket connection.
+// The server will not send any game-state messages until HANDSHAKE_RESPONSE
+// with status ACCEPTED has been sent.
+//
+// gpu_caps field added per ADR-005 (texture format selection).
+
+syntax = "proto3";
+package nexus.protocol;
+
+message Handshake {
+  // Client engine version — must match server's minimum supported version.
+  uint32 client_version = 1;
+
+  // Persistent player identifier from the authentication system.
+  uint64 player_id = 2;
+
+  // 32-byte cryptographic auth token issued by the auth service.
+  // Must be exactly 32 bytes. Server rejects HANDSHAKE if length != 32.
+  bytes auth_token = 3;
+
+  // GPU texture compression capability bitmask (ADR-005).
+  // Bit 0 (0x01): BC7 support (desktop GPUs)
+  // Bit 1 (0x02): ASTC support (Apple Silicon, modern mobile)
+  // 0x00 = neither — server sends ASTC, client does CPU transcoding.
+  // 0x03 = both    — server sends BC7 to this client.
+  uint32 gpu_caps = 4;
+}

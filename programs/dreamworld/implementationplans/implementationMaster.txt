@@ -1,0 +1,557 @@
+
+
+
+
+
+
+DREAMWORLD
+Implementation Plan
+
+
+WEEK-BY-WEEK BUILD GUIDE
+From first Packet to living organism
+
+
+
+
+
+
+Roan Curtis  |  February 2026  |  v1.0
+roancurtis.com/dreamworld
+ 
+0. How to Read This Plan
+This is not a feature list with dates attached. This is a build sequence where each week produces a working thing that builds on the previous week's working thing. Nothing is theoretical. Every week ends with something you can run, see, or interact with. If a week's deliverable doesn't work, you don't move forward.
+The plan has four phases, each ending with something shippable. You can stop at any phase boundary and have a real product. Phase 1 alone is a business. Phase 2 alone changes how people think about computing. Phase 3 makes it multiplayer. Phase 4 makes it a world.
+THE CONSTRAINT
+You are one person with a full course load. The plan assumes 15-25 focused hours per week on Dreamworld. Some weeks will be lighter (midterms, assignments). Some will be heavier (reading week, breaks). The plan accounts for this with buffer weeks. Do not skip buffer weeks to get ahead. Use them to polish what you built or rest.
+
+THE RULE
+Every component you build must pass the soul check before you move on. The soul check is a single question: would you be proud to show this to a stranger? If the answer is no, keep working on it. If the answer is yes, move forward. Speed comes from not building things twice, and you only avoid rebuilding by getting it right the first time.
+
+1. Technology Decisions (Locked)
+These decisions are final. Do not revisit them during development. Revisiting technology choices mid-build is the number one project killer for solo developers.
+Frontend
+•	Renderer: Three.js (r170+). WebGL2 now, WebGPU renderer path later. Do not use WebGL-specific features directly; always go through Three.js abstractions.
+•	Physics (client): Rapier.js (WASM). Deterministic, fast, active development. Not Cannon.js (abandoned). Not Ammo.js (bloated).
+•	UI framework: Vanilla HTML/CSS/JS for the in-game computer overlay. No React in the game client. React adds build complexity you don't need. Use it later for standalone tools if needed.
+•	State: Custom event bus. Packets are the state management system. No Redux, no Zustand. The Packet system IS state management.
+•	Local storage: IndexedDB (via idb library) for the personal knowledge graph. 50-200MB capacity is more than enough for years of braindumps.
+Backend
+•	Gateway: Node.js 20+ with the ws library (not socket.io). Raw WebSocket gives you control over the Packet format. socket.io adds abstraction you'll fight against.
+•	World processes: Node.js child processes via child_process.fork(). Same language as gateway, shared Packet validation code.
+•	Agent service: Python 3.11+ with FastAPI. Async endpoints for non-blocking LLM calls. Anthropic SDK as primary, OpenAI as fallback.
+•	Knowledge service: Python 3.11+ with FastAPI. Postgres queries, embedding generation, semantic search.
+•	Database: PostgreSQL 16 with PostGIS extension for spatial queries. pgvector extension for embedding similarity search.
+•	Server: Hetzner Cloud. Start with a CX41 (4 vCPU, 16GB RAM, ~$16/mo). Upgrade when needed.
+Infrastructure
+•	Process management: PM2 for keeping gateway and Python services alive. World processes managed by gateway directly.
+•	TLS: Let's Encrypt via Certbot. Auto-renewal. WSS:// and HTTPS:// on all endpoints.
+•	Reverse proxy: Nginx. Routes HTTPS to gateway, API paths to Python services, static assets from disk.
+•	Backups: pg_dump cron job to Hetzner Storage Box (separate from server). Daily full, hourly WAL archiving.
+•	Monitoring: Simple: PM2 monitoring + custom health check endpoint + Discord webhook alerts on crash.
+Tooling
+•	Version control: Git + GitHub. Monorepo with /client, /gateway, /services/agent, /services/knowledge, /shared (Packet types).
+•	Package management: npm for JS, pip with requirements.txt for Python.
+•	Development: VS Code. No Docker in development (adds complexity). Docker for production deployment later.
+
+2. Phase 0: The Circulatory System
+Duration: Weeks 1-4. Goal: One Packet flowing from a client through a server and back. Auth working. Database persisting. Telegram bot responding. This phase builds the blood vessels that every future organ pumps through.
+
+WEEK 1  Feb 17 - Feb 23
+The First Packet
+
+This week you define the language the entire organism speaks and prove it works end to end. Everything after this week is just new Packet types flowing through the same pipes.
+Deliverables
+	Deliverable	Hours Est.	Done?
+☐	Monorepo structure: /client, /gateway, /shared, /services	2h	
+☐	Packet type definitions in /shared (TypeScript interfaces): Header + 4 body schemas (EVENT, AUTH, CHAT, WORLD_STATE)	3h	
+☐	Packet validation function in /shared: validatePacket(packet) returns true/false with error message	2h	
+☐	Gateway: Node.js WebSocket server that accepts connections, receives Packets, validates headers, echoes back	3h	
+☐	Client: Minimal Three.js scene (black background, one cube) that opens WebSocket, sends a test Packet, receives echo, logs to console	3h	
+☐	Integration test: client sends EVENT Packet, gateway validates, echoes, client receives. Full round trip.	2h	
+SOUL CHECK: Open the browser. See a cube. Open the console. See a Packet arrive. That is the first heartbeat. Does it feel clean?
+
+WEEK 2  Feb 24 - Mar 2
+Auth + Database + First Persistence
+
+Identity and memory. After this week, the organism knows who you are and can remember things across sessions.
+Deliverables
+	Deliverable	Hours Est.	Done?
+☐	PostgreSQL schema v1: users (id, email, password_hash, created_at), worlds (id, owner_id, config JSONB, created_at), sessions (id, user_id, token, expires_at)	3h	
+☐	Auth endpoints in gateway: POST /register (bcrypt hash), POST /login (returns JWT), WebSocket upgrade validates JWT	4h	
+☐	Packet routing: gateway reads Packet.header.type and routes AUTH packets to auth handler, other types to world handler stub	2h	
+☐	World persistence: create world row on first login, load world config from DB, send WORLD_STATE Packet to client on connect	3h	
+☐	Client: on connect, receive world state, recreate scene from config (even if it's just cube positions)	3h	
+☐	Hetzner server setup: Ubuntu 24, Node 20, Postgres 16, Nginx, Certbot, PM2. Gateway running at wss://roancurtis.com/ws	4h	
+SOUL CHECK: Register. Log out. Log back in. Your cube is where you left it. Identity persists. State persists. Does the login flow feel smooth?
+
+WEEK 3  Mar 3 - Mar 9
+Telegram Bot + Agent Service Skeleton
+
+The Nervous System's first reflex. Text goes in, intelligence comes out. This is independently shippable as a product.
+Deliverables
+	Deliverable	Hours Est.	Done?
+☐	Python agent service: FastAPI server with /task endpoint that accepts AGENT_TASK Packet body, calls Anthropic API, returns AGENT_OUTPUT	4h	
+☐	System prompt for decomposition agent: receives messy user input, returns structured JSON (extracted_facts, tasks, calendar_events, response)	3h	
+☐	Telegram bot: python-telegram-bot library. Receives messages, wraps as AGENT_TASK, sends to agent service, returns response to chat	3h	
+☐	Agent service talks to gateway via internal WebSocket (localhost): can send Packets into the organism	2h	
+☐	Rate limiting: max 10 agent calls per user per hour (prevents runaway API costs)	1h	
+☐	Basic token tracking: each agent call increments a counter on the user row. No billing yet, just counting.	1h	
+SOUL CHECK: Text the Telegram bot from your phone. Get an intelligent response within 5 seconds. Does the bot feel alive, not robotic?
+
+WEEK 4  Mar 10 - Mar 16
+Buffer + Polish + Ship Telegram Bot
+
+Buffer week. Catch up on anything that slipped. Polish the Telegram bot. Write Terms of Service and Privacy Policy. Ship the bot publicly.
+Deliverables
+	Deliverable	Hours Est.	Done?
+☐	Terms of Service document (adapt from open source template): acceptable use, account termination, beta disclaimer, age 13+ requirement	3h	
+☐	Privacy Policy document: data collected, storage, no sharing, deletion process, GDPR basics	2h	
+☐	Beta safety warning: prominent message in bot welcome and on website about not storing sensitive data	1h	
+☐	Landing page at roancurtis.com/dreamworld: what it is, sign up for bot, link to ToS/Privacy	3h	
+☐	Telegram bot live and accepting users. Post on socials. Tell friends. First external users.	2h	
+☐	Bug fixes and stability from first external usage	4h	
+PHASE 0 SHIP GATE
+The Telegram bot is live. External users are using it. You have auth, a database, a Packet system, an agent service, and a server. You are generating data about what people ask for. This alone is a product. Revenue can start here with Stripe integration if you want. Everything after this is building the 3D world on top of infrastructure that already works.
+
+3. Phase 1: The House (Alpha MVP)
+Duration: Weeks 5-16 (3 months). Goal: One world. One house. One office. One computer. One agent. Polished until people forget they are in a browser. This is the moment that determines everything. Single-player only. No multiplayer. No portals. Just the experience of walking into your home for the first time.
+
+WEEK 5  Mar 17 - Mar 30
+Character + Camera Spine + Room
+
+Two-week sprint. The physical foundation: a character in a room with the camera that defines how everything feels.
+Deliverables
+	Deliverable	Hours Est.	Done?
+☐	Character capsule: kinematic controller with WASD movement, shift to run, space to jump, gravity, ground detection	6h	
+☐	Camera spine implementation: scroll wheel zooms along projected line. Four zones (INSIDE/FIRST_PERSON/THIRD_PERSON/BIRD_VIEW) with smooth easing	6h	
+☐	Third-person camera: right-drag to orbit, camera collision with walls (raycast, pull camera forward if behind geometry), smooth follow with slight lag	5h	
+☐	The Room: a single office interior. Floor, four walls, ceiling, window, desk, chair, bookshelf geometry. All placeholder meshes but correct proportions.	4h	
+☐	Lighting v1: single warm point light above desk, ambient light from window, subtle shadows	3h	
+☐	Character walks around room. Camera zoom works. Collision with walls works. Feels responsive, not floaty.	4h	
+SOUL CHECK: Walk around the room 100 times. Is every step satisfying? Does the camera feel like it breathes when you scroll? Does the room feel like a place you'd want to sit in?
+
+WEEK 7  Mar 31 - Apr 13
+The House + Atmosphere
+
+Expand the room into a house. Add the systems that make it feel alive instead of rendered.
+Deliverables
+	Deliverable	Hours Est.	Done?
+☐	House layout: office, living room, hallway connecting them. Door objects with open/close interaction.	5h	
+☐	Window with sky view: starfield outside that slowly rotates. Occasional twinkling star. Shooting star every few minutes.	3h	
+☐	Time-of-day lighting: warm orange sunrise, bright noon, blue dusk, lamp glow at night. Driven by real UTC time via the Watch.	5h	
+☐	Ambient sound: subtle room hum, wind through window (volume varies with time of day), footstep sounds that change by surface (wood floor, carpet).	5h	
+☐	Furniture: desk, chair, bookshelf, lamp, window frame. Still simple geometry but with materials (wood texture, fabric, glass).	4h	
+☐	Object interaction framework: walk up to object, see interact prompt, press E. Framework for what happens next (triggers an event Packet).	4h	
+SOUL CHECK: Stand in the living room at sunset. Listen. Is the light warm? Can you hear the wind? Does the lamp glow softly? Would you describe this place as cozy or sterile?
+
+WEEK 9  Apr 14 - Apr 27
+The In-Game Computer
+
+The bridge between the 3D world and everything digital. When this works, the game contains the internet instead of the internet containing the game.
+Deliverables
+	Deliverable	Hours Est.	Done?
+☐	Computer object on desk: PlaneGeometry screen + box geometry case. Collision trigger: press E near desk activates computer.	2h	
+☐	Screen activation: camera smoothly transitions to look at screen (overshoot easing, like leaning in). DOM overlay fades in.	4h	
+☐	Computer OS home screen: dark background, centered hub interface. App icons arranged radially. Consistent typography (Inter or system font). Consistent border-radius, spacing, colors.	6h	
+☐	Profile app: shows username, avatar placeholder, time played, worlds count. Data loaded from server via Packet.	3h	
+☐	Agent Chat app: text input at bottom, messages scroll up. Send message wraps as AGENT_TASK Packet, response streams back as AGENT_OUTPUT. Agent responds with awareness of being inside a 3D world.	6h	
+☐	Exit computer: press ESC, DOM overlay fades out, camera transitions back to character view smoothly.	2h	
+☐	Computer keyboard click sounds when typing. Screen hum when active. Silence when off.	2h	
+SOUL CHECK: Walk to desk. Press E. Watch the camera lean in. See the screen flicker on. Type a message. Get a response that feels like someone was waiting for you. Press ESC. Camera pulls back. The room is still there. Does the transition between 3D world and computer feel seamless?
+
+WEEK 11  Apr 28 - May 11
+Knowledge Graph + Braindump
+
+The memory that makes the agent actually know you. After this, the platform stops being a chatbot and starts being an external nervous system.
+Deliverables
+	Deliverable	Hours Est.	Done?
+☐	IndexedDB local graph store: node schema (id, type, title, content, tags, edges[], created_at, updated_at). CRUD operations.	4h	
+☐	Braindump decomposition prompt: system prompt that takes messy input and returns JSON { facts:[], tasks:[], calendar_events:[], connections:[], response:'' }	4h	
+☐	Client-side graph query: given user message, find top 15 most relevant nodes by tag matching and edge proximity. Send as context with AGENT_TASK.	5h	
+☐	Graph update on response: agent returns new knowledge nodes, client writes them to IndexedDB. Bidirectional flow.	3h	
+☐	Knowledge Graph app on computer: 2D force-directed visualization (D3 or custom canvas) showing nodes as circles, edges as lines. New nodes animate in. Click node to see contents.	6h	
+☐	Calendar app on computer: simple monthly view. Calendar nodes from the graph rendered as events. Real dates from UTC.	3h	
+☐	Bookshelf in office: each book spine on the shelf corresponds to a knowledge node of type 'file' or 'project'. Click to open contents on computer screen.	3h	
+SOUL CHECK: Open agent chat. Braindump about your day. Watch 3-5 new nodes appear on the knowledge graph visualization in real time, edges drawing themselves to existing nodes. Open the calendar and see a deadline the agent extracted. Does the graph feel like it's growing, like you're building something with every conversation?
+
+WEEK 13  May 12 - May 18
+Upload-to-Graph + Learning Worlds Prototype
+
+The graph eats files and turns them into navigable knowledge.
+Deliverables
+	Deliverable	Hours Est.	Done?
+☐	File upload on computer: drag-and-drop or file picker. Sends file to agent service for decomposition.	3h	
+☐	PDF/text decomposition: agent extracts structured data, returns knowledge nodes. Class schedule detection: if time-like data found, auto-populate calendar.	5h	
+☐	Learning world prototype: from a decomposed lecture (5+ concept nodes), generate a simple linear sequence of rooms. Each room has a chalkboard screen with concept text and a door with a question.	8h	
+☐	Learning world accessible via the computer map app: click 'enter learning world' and the 3D scene transitions from the house to the learning world interior.	4h	
+SOUL CHECK: Upload a lecture PDF. Watch the graph grow with concept nodes. Click 'generate learning world'. Walk through 3 rooms, answer questions on chalkboards, emerge on the roof with a bird's eye concept map below. Does learning feel spatial?
+
+WEEK 14  May 19 - Jun 1
+Polish, Sound, Animation, Soul
+
+Two weeks of pure polish. No new features. Every existing feature gets smoothed, animated, and sounded until it feels inevitable.
+Deliverables
+	Deliverable	Hours Est.	Done?
+☐	Audit every transition: computer on/off, app switching, graph node appearing, door opening. Each gets custom easing curve with slight overshoot.	6h	
+☐	Audit every sound: footsteps (4 surface types), computer hum, keyboard clicks, ambient wind, door open/close, notification chime, graph node appear (subtle pop).	5h	
+☐	Audit typography: choose one font. Apply everywhere. Consistent sizes (heading, body, caption, label). Consistent colors (primary, secondary, muted, accent).	3h	
+☐	Audit colors: define the palette (5-7 colors max). Apply to every UI surface, every light, every material. Nothing should feel like it came from a different project.	3h	
+☐	Loading states: no spinners. Subtle pulse animations, gentle fades, progress indicators that feel organic.	3h	
+☐	First-time experience: when a new user enters for the first time, the agent greets them by name and offers to help set up their space. Guided tour of the room.	4h	
+☐	Proactive agent: if knowledge graph has calendar deadlines, computer screen shows a subtle notification when you walk in.	3h	
+☐	Performance audit: target 60fps with house fully loaded. Profile, find bottlenecks, optimize.	3h	
+SOUL CHECK: Record a 60-second video of walking into the house, sitting at the computer, braindumping, watching the graph grow, asking the agent to help with something. Watch the video with fresh eyes. Does it make you feel something? Would a stranger watching this stop scrolling?
+
+WEEK 16  Jun 2 - Jun 8
+Ship Alpha
+
+Ship week. Not a feature week. A communication week.
+Deliverables
+	Deliverable	Hours Est.	Done?
+☐	60-second demo video: walking in, computer, braindump, graph, agent. No narration needed if the experience speaks for itself. Music from your Lungs practice.	6h	
+☐	Landing page update: video hero, 'join the alpha' signup, link to Telegram bot for mobile access.	3h	
+☐	Deploy polished build to roancurtis.com/dreamworld. Tested on Chrome, Firefox, Safari, Edge.	3h	
+☐	Share: post video, tell your network, submit to HN/Product Hunt/relevant communities.	2h	
+☐	Collect feedback. Do not immediately react to feature requests. Listen for emotional responses: what made people feel something.	2h	
+PHASE 1 SHIP GATE
+The alpha is live. People are walking into their houses, talking to agents, building knowledge graphs. You have a product that doesn't exist anywhere else: a 3D spatial workspace with AI memory that grows with the user. This is the foundation. Everything after this is adding rooms to a house that already feels like home.
+
+4. Phase 2: The Constellation (Beta)
+Duration: Weeks 17-30 (14 weeks). Goal: Multiple worlds. Multiplayer. Flying. Character customization. Object creation. The graph becomes visible and navigable. The 3D internet begins to take shape.
+
+WEEK 17  Jun 9 - Jun 15
+World Process Architecture
+
+	Deliverable	Hours Est.	Done?
+☐	Refactor gateway: world routing map (worldId -> child process handle). Fork world processes on demand.	5h	
+☐	World process: loads config from Postgres, runs tick loop at 20Hz, receives/broadcasts Packets via IPC to gateway.	6h	
+☐	World process lifecycle: spawn on first player enter, flush to DB every 30s, shutdown on last player leave.	4h	
+☐	Catch-up simulation: on wake, calculate elapsed time, apply time-based changes (growth, decay, scheduled events).	3h	
+
+WEEK 18  Jun 16 - Jun 22
+Multiplayer: See Each Other Move
+
+	Deliverable	Hours Est.	Done?
+☐	Player position Packets: 20Hz client send rate. Server validates (speed check), broadcasts to same-world players.	5h	
+☐	Remote player rendering: receive position Packets, interpolate between updates for smooth 60fps movement.	5h	
+☐	Client-side prediction: local player moves instantly, server reconciles. Smooth correction on mismatch.	4h	
+☐	Interest management: server only sends positions of players in same world (later: proximity within world).	2h	
+☐	Test: two browsers on same machine, both logged in, see each other walk around the house.	2h	
+SOUL CHECK: Open two browser windows. Walk around the house. See yourself from the other player's perspective. Does the other player feel present? Does their movement feel smooth?
+
+WEEK 19  Jun 23 - Jun 29
+Character Model + Customization
+
+	Deliverable	Hours Est.	Done?
+☐	Base character model: simple humanoid (low-poly stylized, not realistic). Rigged with walk/run/idle/jump animations.	8h	
+☐	Character config schema: body type, skin color, hair style/color, eye color, clothing set, tattoo decals.	3h	
+☐	Character customization screen on computer: preview + sliders/selectors. Save emits OBJECT Packet (avatar_update).	5h	
+☐	Tattoo system: decal textures rendered onto UV-mapped character mesh. Library of 10-20 starter tattoos. Placeable on arms, chest, back.	4h	
+
+WEEK 20  Jun 30 - Jul 6
+Flying + Bird View + Constellation
+
+	Deliverable	Hours Est.	Done?
+☐	Bird view activation: scroll to 60%+ zoom triggers flight mode. Character mesh switches to flying pose.	3h	
+☐	Flight controls: WASD + mouse for direction, shift for boost, physics-based (momentum, drag, no instant stops).	4h	
+☐	Constellation rendering: multiple world nodes visible as glowing spheres in the sky. Position from graph edge weights.	5h	
+☐	LOD world previews: distant worlds render as simple spheres with atmosphere halo. Approaching loads terrain shape.	4h	
+☐	Fly to another world node. Cross the boundary. Camera transitions. New world loads from server.	4h	
+
+WEEK 21  Jul 7 - Jul 13
+Object Library + Placement System
+
+	Deliverable	Hours Est.	Done?
+☐	Preset object library: 30-50 objects (furniture, nature, structures, decorations) as glTF models with physics profiles.	6h	
+☐	Placement mode on computer: select object from catalog, enter placement mode, ghost preview follows cursor, click to place, right-click to rotate.	5h	
+☐	Object persistence: placed objects emit OBJECT Packet, server writes to world config in Postgres.	3h	
+☐	Object interaction: walk up, press E. Framework dispatches to object's interaction handler (open, pick up, activate).	3h	
+☐	Object deletion: select object, press delete. Confirmation prompt. Emits OBJECT Packet with destroy schema.	1h	
+
+WEEK 22  Jul 14 - Jul 20
+Agent Object Generation
+
+	Deliverable	Hours Est.	Done?
+☐	Agent generates object configs from natural language: 'a wooden table with iron legs' -> physics profile + geometry reference + material config.	6h	
+☐	Config validation layer (the Brain): checks for impossible physics, missing references, degenerate values before instantiation.	4h	
+☐	Progressive creation: agent streams partial configs, objects appear incrementally (foundation first, then details).	4h	
+☐	Generated objects join the preset library so they can be reused without re-generating.	2h	
+
+WEEK 23  Jul 21 - Jul 27
+Portals + Subgraphs
+
+	Deliverable	Hours Est.	Done?
+☐	Portal object: glowing doorway mesh with collision trigger. Config contains target world_id or subgraph_id.	3h	
+☐	World transition: walk into portal, fade-to-black transition, new world loads, fade-in. Camera maintains orientation.	4h	
+☐	Subgraph creation: from computer, 'create new world' generates a child node linked to current world.	3h	
+☐	Disconnected subgraphs: create world with no parent edge. Only accessible via portal objects. Private dimensions.	2h	
+☐	Portal as inventory item: pick up a portal, place it elsewhere. Tradeable between players.	3h	
+
+WEEK 24  Jul 28 - Aug 3
+Map + Route Planning
+
+	Deliverable	Hours Est.	Done?
+☐	Map app on computer: 3D force-directed graph visualization of the constellation. Rotate, zoom. Click nodes for info.	5h	
+☐	Route calculation: shortest path through graph. Highlight as glowing line in bird view.	3h	
+☐	Holographic map table in living room: 3D miniature constellation floating above table surface.	4h	
+☐	Teleport option: click destination on map, confirm, instant transition (later: costs tokens).	2h	
+
+WEEK 25  Aug 4 - Aug 10
+Monitor + Computer + Wire Objects
+
+	Deliverable	Hours Est.	Done?
+☐	Monitor object: screen mesh on a stand. Assignable to a Computer object via Wire.	3h	
+☐	Wire object: visible cable mesh between Monitor and Computer. Physics (drapes via constraint). Functional (establishes link).	4h	
+☐	Computer object: config with tier (basic/standard/power). Visual representation in world. Stats display when examined.	3h	
+☐	Multiple monitors on one computer: wall of monitors setup. Each shows a different computer app.	3h	
+☐	Any surface as screen: screen_surface attribute on objects. Point at URL or computer app.	3h	
+
+WEEK 26  Aug 11 - Aug 17
+Physics Engine (Rigid Body Core)
+
+	Deliverable	Hours Est.	Done?
+☐	Server-side Rapier.js: world process runs Rapier WASM for authoritative physics.	5h	
+☐	Physics profile interpreter: reads object physics_profile JSON, creates Rapier bodies with correct mass, friction, restitution, collision shape.	5h	
+☐	Constraint system: hinges (doors), springs (bridges), sliders (elevators) configurable via physics profile.	4h	
+☐	Trigger system: on_collision, on_velocity, on_rest triggers emit EVENT Packets.	3h	
+☐	Physics sync: server sends PHYSICS_TICK Packets, client interpolates. Client prediction for player-touched objects.	3h	
+
+WEEK 27  Aug 18 - Aug 24
+Reporting + Moderation + Token Economy
+
+	Deliverable	Hours Est.	Done?
+☐	Report button on every object/world/player. MODERATION Packet with category + description.	3h	
+☐	Moderation dashboard: simple web page listing reports sorted by severity. Auto-escalation at 3+ reports.	4h	
+☐	Token system: each user has token balance in Postgres. Agent calls deduct tokens. Display balance on computer.	3h	
+☐	Stripe integration: buy tokens via Stripe Checkout. Webhook updates balance.	4h	
+☐	Free tier limits: 50 agent calls/month, 1 world, 100 objects. Paid removes limits.	2h	
+
+WEEK 28  Aug 25 - Aug 31
+LAN Mode
+
+	Deliverable	Hours Est.	Done?
+☐	Local server binary: gateway + one world process bundled. Starts on 0.0.0.0:8080.	4h	
+☐	'Host LAN Game' button: starts local server, shows IP address for others to connect.	2h	
+☐	'Join LAN Game' field: enter IP, connect via ws://. Same Packets, same rendering.	2h	
+☐	LAN mode skips auth (or uses simple room codes). Zero internet required.	2h	
+
+WEEK 29-30  Sep 1 - Sep 14
+Buffer + Beta Polish + Ship
+
+	Deliverable	Hours Est.	Done?
+☐	Performance: target 60fps with 500 objects, 8 players. Profile and optimize.	6h	
+☐	Bug bash: fix every known issue. Especially multiplayer desync, physics glitches, memory leaks.	8h	
+☐	Seed content: create 20+ template worlds, populate preset library, build 2-3 example stories/subgraphs.	8h	
+☐	Update landing page with constellation footage. Beta signup.	3h	
+☐	Ship beta to alpha users + new signups. Celebrate.	2h	
+PHASE 2 SHIP GATE
+Multiplayer works. People fly between worlds. Characters are customized. Objects are created and placed. The constellation is visible and navigable. Portals connect worlds. The map shows everything. Monitors connect to computers. Physics works. Reports get filed. Tokens get spent. LAN mode works. This is a platform, not a demo.
+
+5. Phase 3: The Living World (Launch)
+Duration: Weeks 31-44 (14 weeks). Goal: Survival mode. Vehicles. Weapons. Signal propagation. NPCs. AI farming. The shop. The organism starts to breathe on its own.
+
+WEEK 31  Sep 15 - Sep 21
+Survival Framework + Island Setup Quest
+
+	Deliverable	Hours Est.	Done?
+☐	Survival game mode flag on worlds. Resource system: power, water, food meters.	5h	
+☐	Starting quest: tutorial sequence on damaged island. Repair power source, activate computer, establish first radio link.	6h	
+☐	Crafting basics: combine resources to create objects. Recipe configs in Knowledge Graph.	4h	
+☐	Day/night cycle affects gameplay: crops grow in day, threats increase at night.	3h	
+
+WEEK 32  Sep 22 - Sep 28
+Weapon System
+
+	Deliverable	Hours Est.	Done?
+☐	Weapon physics profiles: melee (sword swing arc, damage on collision), ranged (bullet projectile, muzzle velocity, drop, spread).	6h	
+☐	AK-47 prototype: fire rate, recoil force, bullet physics, hit detection via raycasting + physics triggers.	5h	
+☐	Melee prototype: sword with swing animation, collision damage on contact.	3h	
+☐	Health system: player HP, damage events, death and respawn. Damage numbers floating text.	3h	
+☐	PvP zone flag: in PvP worlds, weapon damage applies to players. Outside PvP, weapons only affect NPCs/objects.	2h	
+
+WEEK 33  Sep 29 - Oct 5
+Vehicle Physics (Plane + Car)
+
+	Deliverable	Hours Est.	Done?
+☐	Plane: thrust, lift, drag, gravity. WASD + mouse flight controls. Cockpit view (subworld) with instruments.	8h	
+☐	Car: suspension (spring constraints), wheel friction, engine torque, steering. WASD drive controls.	6h	
+☐	Vehicle entry/exit: walk up, press E to enter. Character sits in vehicle. Press E to exit.	3h	
+☐	Passenger seats: other players can enter as passengers. Their view follows the vehicle.	2h	
+
+WEEK 34  Oct 6 - Oct 12
+Signal Propagation (Radio + Infrared)
+
+	Deliverable	Hours Est.	Done?
+☐	Radio transmitter object: configurable power, frequency. Sends CHAT Packets with signal_strength calculated by distance + weather.	5h	
+☐	Radio receiver: tunes to frequency. Receives CHAT Packets only if signal_strength above threshold.	3h	
+☐	Infrared transmitter: line-of-sight check via raycast. Blocked by objects. Reflector objects for relay chains.	5h	
+☐	Weather effects on signals: fog multiplies attenuation, storms add noise, clear sky = full strength.	3h	
+☐	Signal debug overlay: toggle to see signal propagation circles, infrared beams, blockages.	2h	
+
+WEEK 35  Oct 13 - Oct 19
+Drone System
+
+	Deliverable	Hours Est.	Done?
+☐	Drone object: physics-based quadcopter. Launch from inventory. Separate flight controls from character.	5h	
+☐	Drone camera: player view switches to drone POV. Character stands still. Can switch back and forth.	3h	
+☐	Drone battery: limited flight time. Returns to launch point when depleted.	2h	
+☐	Drone destructible in PvP zones. Drops components as loot.	2h	
+☐	Drone racing: checkpoint system with timer. Leaderboard in Knowledge Graph.	3h	
+
+WEEK 36  Oct 20 - Oct 26
+NPC + Robot System
+
+	Deliverable	Hours Est.	Done?
+☐	NPC entity: character mesh with AI-driven kinematic controller. Nav mesh generation for world terrain.	6h	
+☐	Behavior tree: patrol waypoints, idle at location, aggro on player proximity, attack, flee at low HP.	5h	
+☐	Dialogue system: interact with friendly NPC, screen overlay shows LLM-generated dialogue contextual to world.	4h	
+☐	Robot guard prototype: programmable NPC. Place in your base, set patrol route, armed with weapon.	3h	
+
+WEEK 37  Oct 27 - Nov 2
+AI Farming
+
+	Deliverable	Hours Est.	Done?
+☐	Crop objects: seed -> grow over real time (Watch) -> harvest. Growth affected by water, light, soil quality.	5h	
+☐	Watering system: water source + pipes/sprinklers. Physics-based water flow (simplified particle system).	4h	
+☐	AI farming agent: optimize planting schedule, predict harvest times, alert when crops need attention.	3h	
+☐	Drone crop surveillance: drone scans crops, reports health to your computer.	2h	
+☐	Farm output: harvested crops become resources for crafting, survival, or marketplace sale.	2h	
+
+WEEK 38  Nov 3 - Nov 9
+The Shop + Curated Marketplace
+
+	Deliverable	Hours Est.	Done?
+☐	Shop world: a physical location in the constellation. Walk in, browse items on display pedestals.	5h	
+☐	Item display: object on pedestal with price tag. Interact to preview, buy (deducts tokens), item goes to inventory.	4h	
+☐	Creator application system: form on website. Manual review by you. Approved creators get seller dashboard.	3h	
+☐	Marketplace listing: from computer, list item with price. Appears in shop world. Platform takes 15% cut.	4h	
+☐	Purchase flow: buyer clicks buy, MODERATION check, tokens transfer, object config copies to buyer.	3h	
+
+WEEK 39-40  Nov 10 - Nov 23
+Story Creation Tools + User Content
+
+	Deliverable	Hours Est.	Done?
+☐	Story editor on computer: create a subgraph with rooms, place objects, set triggers, write NPC dialogue.	8h	
+☐	Trigger chain system: visual editor showing event flow (A triggers B triggers C). Stored as config.	6h	
+☐	Event portal creation: configure portal to point at story subgraph. Place in world.	2h	
+☐	Story rating system: players rate after completion. Ratings feed Knowledge Graph.	2h	
+☐	Create 3 example stories: puzzle room, combat encounter, narrative choice-driven adventure.	6h	
+
+WEEK 41-42  Nov 24 - Dec 7
+VPS Containers + Code Editor
+
+	Deliverable	Hours Est.	Done?
+☐	Docker container provisioning: on computer 'power on', spin up container with allocated resources on Hetzner.	6h	
+☐	Container lifecycle: start on power on, pause on power off. Resource limits based on computer tier.	3h	
+☐	Code editor app on computer: either iframed code-server (VS Code) or custom text editor with agent integration.	6h	
+☐	Deploy button: code in editor deploys to container. Output accessible via URL. URL assignable to any screen.	3h	
+☐	SDK: npm package dreamworld-sdk with spawn_object(), on_event(), read_world_state(). Published on npm.	4h	
+☐	Container filesystem accessible from bookshelf: files in container appear as books.	2h	
+
+WEEK 43-44  Dec 8 - Dec 21
+Launch Polish + Ship
+
+	Deliverable	Hours Est.	Done?
+☐	Survival mode playtesting: 10+ hours of actual gameplay. Balance resources, difficulty, progression.	8h	
+☐	Weapon balance: damage, fire rates, accuracy. Nothing one-shot kills. Skill matters.	3h	
+☐	Seed 50+ worlds. Populate Knowledge Graph with community-ready content.	6h	
+☐	Performance: 60fps with full survival world, 20 players, weather, physics.	4h	
+☐	Launch video: 2-minute cinematic showing survival mode, building, flying, combat, agents, the shop.	5h	
+☐	Ship 1.0. Announce. Marketing push.	3h	
+PHASE 3 SHIP GATE
+Dreamworld 1.0 is live. Survival mode works. Vehicles fly. Weapons fire. Signals propagate. NPCs patrol. Farms grow. The shop sells. Stories play. Code deploys. This is the 3D internet with a game layer on top. The organism breathes.
+
+6. Phase 4: The 3D Internet (Post-Launch)
+No fixed timeline. These are expansions built based on user demand, revenue, and your capacity. Each is independently shippable.
+
+Expansion: Visual Programming System (The Eyes)
+Code rendered as walkable 3D space. For loops as spirals, functions as portals, variables as containers. The most technically ambitious feature. Build only when the core platform is stable and generating revenue. Estimate: 6-8 weeks dedicated.
+
+Expansion: Camera Recording System
+Record game state as Packet streams, not pixels. Replay from any angle. Edit after the fact. Live streaming. The Camera organ from the PRD. Estimate: 3-4 weeks.
+
+Expansion: Voice Chat (WebRTC)
+Proximity-based spatial audio. Hear players get louder as they approach. Directional audio in 3D. WebRTC peer-to-peer with server-mediated signaling. Estimate: 4-5 weeks.
+
+Expansion: Working Phones
+Inventory item with small screen interface. Text messaging, contact lists, notifications. Same screen-object architecture as monitors but handheld. Estimate: 2-3 weeks.
+
+Expansion: Image Upload with AI Moderation
+Upload endpoint routes through classification API before image becomes available as texture. OpenAI moderation endpoint or Google Cloud Vision SafeSearch. Never stored until approved. Estimate: 2 weeks.
+
+Expansion: Deep Memory Meta-Analysis
+The Knowledge Graph learns from itself. Pattern extraction across all episodic data. Agent config optimization. Predictive suggestions. This is the brain getting smarter over time. Estimate: ongoing.
+
+Expansion: Mobile Native App
+React Native or Flutter wrapper around the Three.js client. Reduced polygon budgets, simplified shaders, touch controls. Major undertaking. Estimate: 8-12 weeks.
+
+Expansion: WebGPU Renderer
+Swap Three.js renderer from WebGL to WebGPU. Significant performance improvement. Compute shaders for client-side physics. Estimate: 2-3 weeks if Three.js WebGPU renderer is stable.
+
+Expansion: Multi-Agent Architecture (Moltbot Engine)
+Inspired by the OpenClaw multi-agent work: agents as entities with components (cognition, memory, tools, personality, attention, intent). Game-engine-style tick loop for agent processing. State machine (IDLE, REASONING, EXECUTING, WAITING, ERROR). Event bus for decoupled agent-to-agent messaging. Hot-swappable personality modules. This turns the agent system from a request/response service into a living cognitive architecture. Estimate: 4-6 weeks.
+
+Expansion: Enterprise + Education Licensing
+Private instances for schools and companies. Custom branding, SSO integration, admin dashboards, usage analytics, SLA support contracts. Revenue diversification. Estimate: 4-6 weeks of product work + ongoing support.
+
+7. Risk Register
+
+Risk: Scope creep kills momentum
+Mitigation: Every week has a checklist. If it's not on the checklist, it doesn't get built that week. New ideas go in a backlog document, not into the current sprint. Review the backlog monthly, not daily.
+Risk: LLM API costs exceed revenue
+Mitigation: Aggressive caching of agent outputs. Identical or near-identical requests return cached results. Token limits per user per day. Monitor costs weekly. Switch to cheaper models (Haiku) for simple tasks, reserve Opus/Sonnet for complex reasoning.
+Risk: LLM API downtime breaks the platform
+Mitigation: Fallback chain (Anthropic -> OpenAI -> local model for basic tasks). Agent service queues tasks during outage, processes when API returns. Graceful degradation: if agents are down, the 3D world still works for building, exploring, and multiplayer.
+Risk: Solo developer burnout
+Mitigation: The Soul section exists for a reason. Sleep schedule locked. No triple all-nighters. Buffer weeks are not optional. If a week is missed, the plan shifts; it doesn't compress. Bolivia by end of year is non-negotiable — the plan accounts for travel.
+Risk: Nobody cares about the alpha
+Mitigation: The Telegram bot (Phase 0) validates demand before you build the 3D world. If nobody uses the bot, reconsider scope before investing 3 months in the house. The bot is your market test.
+Risk: Multiplayer is buggy and unfun
+Mitigation: Multiplayer ships in beta (Phase 2), not alpha. Alpha is single-player and polished. This means the core experience (house + computer + agent) is solid before multiplayer complexity enters. Multiplayer bugs don't poison first impressions.
+Risk: Security breach before proper security
+Mitigation: Beta warning on all surfaces. No image uploads. No sensitive data storage. Passwords hashed. HTTPS everywhere. DB not public. The warning is both honest and legally protective. Security hardens incrementally with each phase.
+
+8. Daily Practice
+
+Every Day
+•	Wake up at the same time.
+•	15 minutes planning: what are today's 1-3 deliverables from the current week's checklist?
+•	Deep work block: 2-4 hours of uninterrupted Dreamworld development. Phone off. No Discord. No Twitter.
+•	15 minutes reflection: what got done, what blocked you, what's tomorrow.
+•	Class. Workout. Eat. Sleep. In that order of priority after Dreamworld work.
+Every Other Day
+•	30 minutes music creation (inhale).
+•	Or: 30 minutes art creation while playing your music, recorded as a session (exhale).
+•	Creative output goes directly into the platform: music on the iPod, art on canvases, recordings in the Knowledge Graph.
+Every Week
+•	Sunday review: check off completed items on the week's checklist. Honest assessment of what shipped vs what didn't.
+•	If behind: identify why. Was it scope (item was bigger than estimated)? Was it life (midterms, work)? Was it motivation (burnout approaching)?
+•	Adjust next week's plan if needed. Never compress two weeks into one. Shift instead.
+Every Month
+•	Review backlog of new ideas. Prioritize the top 3 for possible inclusion in the current phase.
+•	Review finances: API costs, server costs, token revenue, Telegram bot usage.
+•	Review health: sleep quality, workout consistency, stress level. The organism dies if the Soul dies.
+
+9. The Sequence
+
+Week 1: The first Packet flows.
+Week 4: The Telegram bot is live. People are using it.
+Week 8: The house feels like a place you'd want to stay.
+Week 10: The computer feels like magic.
+Week 12: The agent knows you.
+Week 16: Alpha ships. People walk into their homes for the first time.
+Week 20: People fly between worlds and see each other.
+Week 26: Physics works. Objects are real.
+Week 30: Beta ships. The constellation is alive.
+Week 38: The shop opens. Revenue flows.
+Week 44: 1.0 ships. The 3D internet exists.
+
+That's 44 weeks. Under a year. One person. One vision. One Packet at a time.
+
+The organism has a soul. The plan has a sequence. The sequence has a first step.
+Open your editor. Create /shared/packet.ts. Define the Header interface. That's Week 1, Task 1.
+Ship the thing.
+
+
+END OF PLAN

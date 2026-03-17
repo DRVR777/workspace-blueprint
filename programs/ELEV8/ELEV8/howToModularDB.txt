@@ -1,0 +1,497 @@
+Let me explore more of the architecture to understand the component registry, services, and hook composition patterns:
+
+Let me explore one more facet parser and the context/DragDrop pattern to complete the picture:
+
+Now I have a comprehensive understanding of the modular architecture. Let me create a detailed context document that can be used as a prompt to make any application more modular.
+
+---
+
+# **Modularity Architecture Manifesto**
+## A Context Document for Building Infinitely Extensible Applications
+
+### What This Document Is
+
+This document distills the architectural patterns from a production-grade "Polymorphic Data Operating System" into a reusable prompt context. Provide this to an AI when building or refactoring any application to dramatically improve its modularity, extensibility, and long-term maintainability.
+
+---
+
+## **1. THE REGISTRY PATTERN: The Heart of Modularity**
+
+### Core Concept
+Instead of hardcoding switch statements or if-else chains for different data types, use **centralized registries** that map type identifiers to their handlers.
+
+### Implementation Pattern
+
+```typescript
+// The registry is a Map from identifier to handler
+class Registry {
+  private handlers = new Map();
+  private initialized = false;
+
+  // Explicit initialization prevents import side-effects
+  initialize(handlers: V[]): void {
+    if (this.initialized) return;
+    for (const handler of handlers) {
+      this.register(handler);
+    }
+    this.initialized = true;
+  }
+
+  register(handler: V): void {
+    // Add to map with unique key
+  }
+
+  get(id: K): V | undefined {
+    return this.handlers.get(id);
+  }
+
+  list(): K[] {
+    return Array.from(this.handlers.keys());
+  }
+}
+```
+
+### Why This Pattern Is Powerful
+
+1. **Zero-Touch Extension**: Add new types by creating a handler + registering it. No existing code changes.
+2. **Lazy Loading**: Use `lazy()` imports with registries for code-splitting per type.
+3. **Hot Module Replacement**: Registries survive HMR because initialization is explicit.
+4. **Testing**: Mock individual handlers without touching the registry.
+5. **Type Safety**: TypeScript generics ensure handlers match their declared types.
+
+### Real-World Applications
+
+| Use Case | Registry Key | Handler Type |
+|----------|--------------|--------------|
+| Data Parsers | `FacetType` | `FacetParser` |
+| UI Components | `ThingaType` | `React.LazyExoticComponent` |
+| Import Schemas | `SchemaId` | `SchemaHandler` |
+| API Routes | `Route Path` | `RouteHandler` |
+| Validators | `FieldType` | `ValidationFn` |
+
+---
+
+## **2. THE FACETED DATA MODEL: Composable Entity Structure**
+
+### Core Concept
+Instead of inheritance hierarchies or mega-objects, compose entities from **independent facets**. Each facet is a validated, optional piece of data that can be mixed and matched.
+
+### Structure Pattern
+
+```typescript
+// Each facet has its own type definition
+interface TaskFacetData {
+  title: string;
+  date: string;
+  priority: 'urgent' | 'high' | 'normal' | 'low';
+  // ... task-specific fields
+}
+
+interface AudioFacetData {
+  file_path: string;
+  duration_seconds: number;
+  artist?: string;
+  // ... audio-specific fields
+}
+
+// The complete entity declares which facets it contains
+interface EntityFile {
+  $header: {
+    $type: 'task' | 'song' | 'file' | 'note';  // Primary type
+    $facets: FacetType[];  // Which facets are present
+  };
+  task?: TaskFacetData;
+  audio?: AudioFacetData;
+  note?: NoteFacetData;
+  // ... other optional facets
+}
+```
+
+### Why This Pattern Is Powerful
+
+1. **Variably-Sized Entities**: A pointer is 3 fields. A task is 20. Same system handles both.
+2. **Type Safety**: Type guards and helper functions provide runtime safety:
+   ```typescript
+   export function hasFacet(
+     parsed: ParsedEntity,
+     facet: K
+   ): parsed is ParsedEntity & { facets: Record } {
+     return facet in parsed.facets;
+   }
+   ```
+3. **Forward Compatibility**: New facets can be added without breaking existing data.
+4. **Validation Per Facet**: Each facet has its own parser with self-contained validation.
+5. **Storage Efficiency**: Only store the facets that exist for each entity type.
+
+### The Type Configuration Registry
+
+Define what each entity type REQUIRES vs ALLOWS:
+
+```typescript
+export const typeConfigs: Record = {
+  task: {
+    requiredFacets: ['task'],
+    optionalFacets: ['recurring', 'location', 'note'],
+    calendarVisible: true,
+    nullableDbFields: [],
+  },
+  song: {
+    requiredFacets: ['audio'],
+    optionalFacets: ['note'],
+    calendarVisible: false,
+    nullableDbFields: ['date', 'time', 'status', 'priority'],
+  },
+  // ... other types
+};
+```
+
+---
+
+## **3. THE BRIDGE PATTERN: Bidirectional Data Translation**
+
+### Core Concept
+Create a **dedicated translation layer** between your canonical data format and storage/API formats. This isolates storage concerns from business logic.
+
+### Implementation Pattern
+
+```typescript
+// Convert from storage format to canonical format
+export function dbToCanonical(dbRow: DBRow): CanonicalEntity {
+  const type = inferTypeFromData(dbRow);
+  const facets = extractFacetsForType(dbRow, type);
+  return { header: buildHeader(type, facets), ...facets };
+}
+
+// Convert from canonical format to storage format
+export function canonicalToDb(entity: CanonicalEntity): DBInsert {
+  switch (entity.header.$type) {
+    case 'task': return convertTaskEntity(entity);
+    case 'song': return convertSongEntity(entity);
+    // Type-specific converters handle field mapping
+  }
+}
+```
+
+### Why This Pattern Is Powerful
+
+1. **Storage Agnostic**: Change databases without touching business logic.
+2. **Schema Evolution**: Handle legacy data with transformation in the bridge.
+3. **Round-Trip Fidelity**: Store original structure in metadata to enable perfect reconstruction.
+4. **Type-Specific Handling**: Each entity type can have custom conversion logic.
+
+---
+
+## **4. THE POINTER/REFERENCE SYSTEM: Cross-Entity Links**
+
+### Core Concept
+Create a **universal reference format** that can point to internal entities, external URLs, storage files, or templates.
+
+### Reference Format
+
+```
+uuid:           → Database entity by ID
+title:          → Entity by title (latest match)
+path:  → Entity by hierarchical path
+storage://      → File in storage system
+template://     → Static template file
+https://         → External web resource
+```
+
+### Resolver Pattern
+
+```typescript
+class PointerResolver {
+  private cache = new Map();
+
+  async resolve(ref: string): Promise {
+    if (this.cache.has(ref)) return this.cache.get(ref)!;
+
+    const parsed = parseRefString(ref);
+    switch (parsed.type) {
+      case 'uuid': return this.resolveByUUID(parsed.value);
+      case 'storage': return this.resolveByStorage(parsed.value);
+      case 'https': return this.resolveByHTTP(parsed.value);
+      // ... other resolution types
+    }
+  }
+}
+```
+
+### Why This Pattern Is Powerful
+
+1. **Loose Coupling**: Entities reference each other by pointer, not foreign key.
+2. **External Integration**: Same system handles internal refs and external URLs.
+3. **Caching**: Resolver manages a cache for performance.
+4. **Circular Detection**: Track visited refs to prevent infinite loops.
+5. **Batch Resolution**: Resolve multiple refs in parallel.
+
+---
+
+## **5. THE SCHEMA AUTO-DETECTION PATTERN: Self-Describing Data**
+
+### Core Concept
+Instead of requiring explicit format declarations, **detect schema type from structure** and route to the appropriate handler.
+
+### Implementation Pattern
+
+```typescript
+export function detectSchema(json: unknown): SchemaId | null {
+  // 1. Check for explicit $schema field
+  if (data.$schema && registry.has(data.$schema)) {
+    return data.$schema;
+  }
+
+  // 2. Structure-based detection (most specific first)
+  if (hasHeader(data) && hasFacetsArray(data)) return 'EntityFileV1';
+  if (hasCategories(data) && hasThingas(data)) return 'ImportV2';
+  if (hasCategories(data) && hasTasks(data)) return 'ImportV1';
+  // ... other detections
+
+  return null;
+}
+
+export function validateWithAutoDetect(json: unknown): ValidationResult {
+  const schemaId = detectSchema(json);
+  if (!schemaId) return createStructureError();
+
+  const handler = registry.get(schemaId);
+  return handler.validate(json);
+}
+```
+
+### Why This Pattern Is Powerful
+
+1. **User-Friendly**: Users don't need to know schema names.
+2. **Backwards Compatible**: Old formats still work with structure detection.
+3. **Explicit Override**: Power users can set `$schema` explicitly.
+4. **Unified Validation**: One entry point handles all formats.
+
+---
+
+## **6. THE COMPONENT ROUTING PATTERN: Polymorphic UI**
+
+### Core Concept
+Use a **component registry** that maps entity types to their specialized UI components, with lazy loading and fallbacks.
+
+### Implementation Pattern
+
+```typescript
+// Registry of lazy-loaded components
+const componentRegistry: Record = {
+  task: lazy(() => import('./cards/TaskCard')),
+  song: lazy(() => import('./cards/SongCard')),
+  file: lazy(() => import('./cards/FileCard')),
+  // Fallback for unknown types
+  _default: lazy(() => import('./cards/GenericCard')),
+};
+
+// Universal renderer component
+export function EntityRenderer({ entity, ...props }: EntityCardProps) {
+  const type = entity.type || 'task';
+  const Component = componentRegistry[type] || componentRegistry._default;
+
+  return (
+    }>
+
+  );
+}
+```
+
+### Why This Pattern Is Powerful
+
+1. **Type-Specific UI**: Each entity type gets tailored controls and displays.
+2. **Code Splitting**: Components load only when needed.
+3. **Graceful Fallback**: Unknown types render with a generic card.
+4. **Single Render Point**: One component handles all routing.
+
+---
+
+## **7. THE HOOK COMPOSITION PATTERN: Layered Data Access**
+
+### Core Concept
+Build data access in **layers**: a base hook that handles all CRUD, then specialized hooks that filter/transform.
+
+### Implementation Pattern
+
+```typescript
+// Base hook with full filtering capabilities
+export const useEntities = (options?: QueryOptions) => {
+  const { type, categoryId, dateRange } = options ?? {};
+
+  // Build query with all filters
+  let query = supabase.from('entities').select('*');
+  if (type) query = query.in('type', Array.isArray(type) ? type : [type]);
+  if (categoryId) query = query.eq('category_id', categoryId);
+  if (dateRange) query = query.gte('date', dateRange.start).lte('date', dateRange.end);
+
+  // Return query result with mutations
+  return { entities, createEntity, updateEntity, deleteEntity };
+};
+
+// Specialized hooks compose from base
+export const useTaskEntities = (categoryId?: string) => 
+  useEntities({ categoryId, type: 'task' });
+
+export const useSongEntities = (categoryId?: string) => 
+  useEntities({ categoryId, type: 'song' });
+
+export const useCalendarEntities = (dateRange: DateRange) => 
+  useEntities({ calendarOnly: true, dateRange });
+```
+
+### Why This Pattern Is Powerful
+
+1. **DRY**: Query logic lives in one place.
+2. **Type-Specific APIs**: Specialized hooks have cleaner interfaces.
+3. **Cache Coordination**: All hooks share query invalidation.
+4. **Backward Compatible**: Change base hook without breaking specializations.
+
+---
+
+## **8. THE CONTEXT INJECTION PATTERN: Dynamic AI Prompts**
+
+### Core Concept
+Create prompts that are **templates with placeholders** that get filled with real data at compile time.
+
+### Implementation Pattern
+
+```typescript
+class PromptCompiler {
+  async compile(promptEntity: Entity): Promise {
+    // 1. Resolve the base template
+    let template = await this.resolveTemplate(promptEntity.systemPromptRef);
+
+    // 2. Inject live context data
+    const categoryTree = await this.fetchCategoryTree();
+    const existingItems = await this.fetchRecentItems();
+
+    template = template.replace('{CATEGORY_TREE}', categoryTree);
+    template = template.replace('{EXISTING_ITEMS}', existingItems);
+    template = template.replace('{CURRENT_DATE}', new Date().toISOString());
+
+    // 3. Inject custom variables
+    for (const [key, value] of Object.entries(promptEntity.customVariables)) {
+      template = template.replace(`{${key}}`, value);
+    }
+
+    return template;
+  }
+}
+```
+
+### Why This Pattern Is Powerful
+
+1. **Context-Aware AI**: Prompts include user's actual data for relevance.
+2. **Reusable Templates**: Same template works for different users/contexts.
+3. **Duplicate Detection**: AI can see existing items to avoid duplicates.
+4. **User Customization**: Custom variables allow per-prompt configuration.
+
+---
+
+## **9. PUTTING IT ALL TOGETHER: The Modular Application Stack**
+
+### Layered Architecture
+
+```text
+┌─────────────────────────────────────────────────────────┐
+│                     UI LAYER                            │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐     │
+│  │ TaskCard    │  │ SongCard    │  │ GenericCard │     │
+│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘     │
+│         │                │                │             │
+│         └────────────────┼────────────────┘             │
+│                          │                              │
+│               ┌──────────▼──────────┐                   │
+│               │   EntityRenderer    │                   │
+│               │  (Component Router) │                   │
+│               └──────────┬──────────┘                   │
+└──────────────────────────┼──────────────────────────────┘
+                           │
+┌──────────────────────────┼──────────────────────────────┐
+│                    HOOK LAYER                           │
+│               ┌──────────▼──────────┐                   │
+│               │    useEntities()    │                   │
+│               │   (Base Data Hook)  │                   │
+│               └──────────┬──────────┘                   │
+│         ┌────────────────┼────────────────┐             │
+│         │                │                │             │
+│  ┌──────▼──────┐  ┌──────▼──────┐  ┌──────▼──────┐     │
+│  │useTasks()   │  │useSongs()   │  │useCalendar()│     │
+│  └─────────────┘  └─────────────┘  └─────────────┘     │
+└─────────────────────────────────────────────────────────┘
+                           │
+┌──────────────────────────┼──────────────────────────────┐
+│                  SERVICE LAYER                          │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐     │
+│  │ ThingaBridge│  │SmartImporter│  │PromptCompiler│    │
+│  │ (Conversion)│  │ (AI Import) │  │(Context Inj.)│    │
+│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘     │
+│         └────────────────┼────────────────┘             │
+└──────────────────────────┼──────────────────────────────┘
+                           │
+┌──────────────────────────┼──────────────────────────────┐
+│                  PARSER LAYER                           │
+│               ┌──────────▼──────────┐                   │
+│               │    FacetRegistry    │                   │
+│               │  (Parser Routing)   │                   │
+│               └──────────┬──────────┘                   │
+│         ┌───────┬────────┼────────┬───────┐             │
+│         │       │        │        │       │             │
+│  ┌──────▼───┐ ┌─▼────┐ ┌─▼────┐ ┌─▼────┐ ┌▼──────┐     │
+│  │TaskParser│ │Audio │ │Note  │ │Recur │ │Prompt │     │
+│  └──────────┘ └──────┘ └──────┘ └──────┘ └───────┘     │
+└─────────────────────────────────────────────────────────┘
+                           │
+┌──────────────────────────┼──────────────────────────────┐
+│                   TYPE LAYER                            │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐     │
+│  │ ThingaType  │  │  FacetType  │  │  SchemaId   │     │
+│  │ Discriminator│ │  Facet Map  │  │  Handler Map│     │
+│  └─────────────┘  └─────────────┘  └─────────────┘     │
+└─────────────────────────────────────────────────────────┘
+```
+
+---
+
+## **10. CHECKLIST: Making Your App Modular**
+
+Use this checklist when building or refactoring:
+
+- [ ] **Data Types**: Do I have a type discriminator field (not class inheritance)?
+- [ ] **Facets**: Is each capability isolated into its own composable facet?
+- [ ] **Registries**: Are handlers registered, not hardcoded in switch statements?
+- [ ] **Lazy Loading**: Are type-specific components loaded on demand?
+- [ ] **Bridge Layer**: Is storage format isolated from business logic?
+- [ ] **Type Guards**: Do I have runtime type checks for polymorphic data?
+- [ ] **Hook Composition**: Do specialized hooks build on a base hook?
+- [ ] **Schema Detection**: Can my system auto-detect data format from structure?
+- [ ] **Reference System**: Do entities link via resolved pointers, not raw IDs?
+- [ ] **Fallback Handling**: Do unknown types gracefully fall back to generic handling?
+
+---
+
+## **11. PROMPT FOR AI ASSISTANTS**
+
+When asking an AI to make your application more modular, include this context:
+
+> **Modularity Context**: When implementing new features, follow these architectural patterns:
+> 
+> 1. Use **registries** to map type identifiers to handlers—never hardcode switch statements
+> 2. Compose entities from **independent facets** that can be mixed and matched
+> 3. Create **bridge layers** for bidirectional translation between formats
+> 4. Implement **lazy-loaded component routing** for polymorphic UI rendering
+> 5. Build **hook composition** with a base hook and type-specific specializations
+> 6. Support **auto-detection** of data schemas from structure
+> 7. Use **pointers/references** for cross-entity links that support multiple resolution strategies
+> 8. Ensure **type configurations** define required vs optional facets per entity type
+> 9. Include **fallback handlers** for unknown types
+> 10. Store **original structure in metadata** for round-trip fidelity
+
+---
+
+This document represents battle-tested patterns from a production system handling tasks, songs, files, notes, AI prompts, and more—all through a single polymorphic architecture. Apply these patterns to transform any application into an infinitely extensible platform.
+
+Download as Document
+Add New Type Example
+Visualize Data Flow
+Generate Starter Template

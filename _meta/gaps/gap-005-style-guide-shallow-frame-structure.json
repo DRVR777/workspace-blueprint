@@ -1,0 +1,12 @@
+{
+  "gap_id": "gap-005",
+  "detected_at": "2026-03-13T00:20:00Z",
+  "detected_in": "writing-room/docs/style-guide.md",
+  "gap_type": "shallow_node",
+  "description": "style-guide.md classifies content by TYPE (blog post, tutorial, technical doc) but not by FRAME (best practices, comparison, explainer, launch, troubleshooting, case study). An agent asked to write 'a best practices post' has no guidance on how the frame determines structure — it chooses by inference.",
+  "evidence": "Test 3 simulation: agent writing auth best practices blog post inferred 'a best practices framing calls for a ranked or numbered structure' — no file states this. The choice of structure for frame-typed content is always inferential under the current style-guide.",
+  "severity": "degrading",
+  "proposed_expansion": "Add a 'Content Frame Patterns' table to style-guide.md mapping: Content Frame | Structure | Length | Opens With — covering at minimum 5 frames common to developer relations writing.",
+  "status": "closed",
+  "closed_by": "writing-room/docs/style-guide.md — Content Frame Patterns table added"
+}

@@ -1,0 +1,12 @@
+{
+  "gap_id": "gap-002",
+  "detected_at": "2026-03-13T00:00:00Z",
+  "detected_in": "writing-room/docs/voice.md",
+  "gap_type": "missing_bridge",
+  "description": "writing-room/docs/voice.md is used by community/CONTEXT.md as a cross-workspace dependency. writing-room has no documentation of this dependency, making voice.md appear to be an internal-only document when it is actually a shared resource.",
+  "evidence": "community/CONTEXT.md loads ../writing-room/docs/voice.md for newsletters. writing-room/CONTEXT.md and voice.md contain no indication they are consumed externally.",
+  "severity": "degrading",
+  "proposed_expansion": "Add to writing-room/CONTEXT.md What NOT to Do section: 'Do not treat voice.md as internal-only. community/ pulls it cross-workspace. Changes to voice.md affect community output.'",
+  "status": "open",
+  "closed_by": null
+}

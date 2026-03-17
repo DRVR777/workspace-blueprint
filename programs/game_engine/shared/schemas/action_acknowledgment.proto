@@ -1,0 +1,29 @@
+// NEXUS Network Protocol — ACTION_ACKNOWLEDGMENT (type: 0x0103)
+// Priority: A (Control). Direction: server → client.
+// Source: PRD.md §8.3. Format: Protobuf (ADR-006).
+//
+// Sent in response to PLAYER_ACTION messages where requires_ack = true.
+// The sequence_number matches the originating PLAYER_ACTION.
+//
+// Clients must maintain a pending-ack queue. On receipt of PARTIAL or
+// REJECTED, the client should roll back the optimistic local state and
+// re-sync from the next ENTITY_POSITION_UPDATE.
+
+syntax = "proto3";
+package nexus.protocol;
+
+enum ActionResult {
+  SUCCESS  = 0;  // Action applied in full.
+  REJECTED = 1;  // Action refused — client state was invalid.
+  PARTIAL  = 2;  // Action applied with modifications (e.g. build obstructed).
+}
+
+message ActionAcknowledgment {
+  // Matches PLAYER_ACTION.sequence_number being acknowledged.
+  uint32 sequence_number = 1;
+
+  ActionResult result = 2;
+
+  // Optional result detail — structure defined by the original action_type.
+  bytes payload = 3;
+}

@@ -1,0 +1,43 @@
+// NEXUS Network Protocol — ENTITY_POSITION_UPDATE (type: 0x0001)
+// Priority: A (Metadata). Direction: server → client. Frequency: 50Hz.
+// Source: PRD.md §8.3. Format: Flatbuffers (ADR-006).
+//
+// PAYLOAD ONLY. The wire frame (message_type, message_version, sequence_number,
+// timestamp_ms, payload_length) is prepended by the transport layer — see PRD.md §8.2.
+//
+// float16 NOTE: FlatBuffers has no native float16 type. orientation_* and velocity_*
+// fields are uint16 storing IEEE 754 half-precision float encoding. Use the
+// half_float::to_float() / half_float::from_float() utilities in the network runtime.
+
+namespace nexus.protocol;
+
+// Fixed-size per-entity record. Declared as struct (not table) for zero-allocation
+// sequential reads when iterating the entities vector.
+struct EntityEntry {
+  entity_id:     uint32;
+
+  // World-space position — full float32 precision.
+  position_x:    float;
+  position_y:    float;
+  position_z:    float;
+
+  // Unit quaternion orientation — half-float encoded as uint16.
+  orientation_w: uint16;
+  orientation_x: uint16;
+  orientation_y: uint16;
+  orientation_z: uint16;
+
+  // Velocity vector — half-float encoded as uint16.
+  velocity_x:    uint16;
+  velocity_y:    uint16;
+  velocity_z:    uint16;
+}
+
+table EntityPositionUpdate {
+  // message_version field matches wire frame version — verify before decode.
+  message_version: uint16 = 1;
+
+  entities: [EntityEntry];
+}
+
+root_type EntityPositionUpdate;

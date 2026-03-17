@@ -1,0 +1,26 @@
+// NEXUS Network Protocol — ASSET_REQUEST (type: 0x0201)
+// Priority: B (Assets). Direction: client → server.
+// Source: PRD.md §8.3. Format: Flatbuffers (ADR-006).
+//
+// Client requests one or more geometry assets. The server responds with
+// ASSET_CHUNK messages for each requested asset, followed by ASSET_COMPLETE.
+// Requests are batched: up to 255 assets per message.
+//
+// ADR-005: the server selects the format variant (BC7 or ASTC) that matches
+// the gpu_caps declared in the client's HANDSHAKE. No format field is needed here.
+
+namespace nexus.protocol;
+
+struct AssetRequestEntry {
+  object_type_id: uint32;
+  lod_tier:       uint8;
+}
+
+table AssetRequest {
+  message_version: uint16 = 1;
+
+  // Maximum 255 entries per message (fits in uint8 request_count per PRD).
+  requests: [AssetRequestEntry];
+}
+
+root_type AssetRequest;

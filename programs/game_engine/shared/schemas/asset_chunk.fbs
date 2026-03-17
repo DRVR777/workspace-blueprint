@@ -1,0 +1,28 @@
+// NEXUS Network Protocol — ASSET_CHUNK (type: 0x0300)
+// Priority: B (Assets). Direction: server → client.
+// Source: PRD.md §8.3. Format: Flatbuffers (ADR-006).
+//
+// One chunk of a multi-part asset transfer. The client buffers chunks and
+// reassembles when all chunks for a given (object_type_id, lod_tier, asset_version)
+// triple have arrived.
+//
+// Chunks may arrive out of order. The client must not assume sequential delivery.
+// After all total_chunks are received, validate with ASSET_COMPLETE.checksum.
+
+namespace nexus.protocol;
+
+table AssetChunk {
+  message_version:  uint16 = 1;
+  object_type_id:   uint32 (required);
+  lod_tier:         uint8;
+  asset_version:    uint32 (required);
+
+  // 0-indexed. Reassemble in chunk_index order.
+  chunk_index:      uint32 (required);
+  total_chunks:     uint32 (required);
+
+  // Raw chunk bytes. GPU-native compressed format (BC7 or ASTC per ADR-005).
+  chunk_data:       [uint8] (required);
+}
+
+root_type AssetChunk;

@@ -1,0 +1,12 @@
+{
+  "gap_id": "gap-001",
+  "detected_at": "2026-03-13T00:00:00Z",
+  "detected_in": "production/CONTEXT.md",
+  "gap_type": "missing_bridge",
+  "description": "production/CONTEXT.md and production/workflows/CONTEXT.md do not document that their output is consumed by community/. The handoff is documented in community/CONTEXT.md (receiver) but not in production (sender).",
+  "evidence": "Structural audit found community/CONTEXT.md references production/workflows/04-output/ as input. No corresponding note exists in production files.",
+  "severity": "degrading",
+  "proposed_expansion": "Add to production/CONTEXT.md Hard Rules section: 'Rule 5: Output in 04-output/ is consumed by community/. Name output files with sufficient description that community agents can identify relevance without reading the spec.'",
+  "status": "open",
+  "closed_by": null
+}

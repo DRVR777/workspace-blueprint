@@ -1,0 +1,25 @@
+// NEXUS Network Protocol — NODE_TRANSFER (type: 0x0102)
+// Priority: A (Control). Direction: server → client.
+// Source: PRD.md §8.3. Format: Protobuf (ADR-006).
+//
+// Sent when a player moves into a neighboring node's domain. The client
+// must connect to new_node_address and present the transfer_token in its
+// HANDSHAKE auth_token field. The current connection stays alive until
+// the new connection is established (seamless handoff).
+//
+// After receiving NODE_TRANSFER:
+//   1. Open new WebSocket connection to new_node_address
+//   2. Send HANDSHAKE with auth_token = transfer_token
+//   3. Wait for HANDSHAKE_RESPONSE ACCEPTED from new node
+//   4. Close old connection
+
+syntax = "proto3";
+package nexus.protocol;
+
+message NodeTransfer {
+  // Address of the destination node: "host:port" format.
+  string new_node_address = 1;
+
+  // 32-byte single-use transfer token. Valid for 10 seconds.
+  bytes transfer_token = 2;
+}

@@ -1,0 +1,102 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "telemetry-schema",
+  "title": "Stage Run Telemetry",
+  "description": "Emitted to output/telemetry.json after every stage execution. One entry per run (append-only array).",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": [
+      "run_id",
+      "stage_id",
+      "project_id",
+      "program_id",
+      "timestamp",
+      "status",
+      "duration_ms",
+      "inputs_loaded",
+      "inputs_skipped",
+      "outputs_produced",
+      "audit_flags"
+    ],
+    "properties": {
+      "run_id": {
+        "type": "string",
+        "description": "Unique ID for this run. Format: [stage_id]-[ISO-8601-timestamp]. Example: data-store-2026-03-14T09:42:00Z",
+        "pattern": "^[a-z0-9-]+-\\d{4}-\\d{2}-\\d{2}T"
+      },
+      "stage_id": {
+        "type": "string",
+        "description": "Identifier of the stage that ran. Matches the folder name under programs/."
+      },
+      "project_id": {
+        "type": "string",
+        "description": "The project this stage belongs to. Matches the folder name under programs/."
+      },
+      "program_id": {
+        "type": "string",
+        "description": "The program this stage belongs to. Matches the folder name under programs/[project]/programs/."
+      },
+      "timestamp": {
+        "type": "string",
+        "format": "date-time",
+        "description": "ISO-8601 UTC timestamp when the run started."
+      },
+      "status": {
+        "type": "string",
+        "enum": ["completed", "partial", "failed"],
+        "description": "completed = all outputs produced and audit passed. partial = some outputs missing. failed = stage did not complete."
+      },
+      "duration_ms": {
+        "type": "integer",
+        "minimum": 0,
+        "description": "Wall-clock time in milliseconds from stage start to last output written."
+      },
+      "inputs_loaded": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "File paths loaded during this run, relative to workspace root."
+      },
+      "inputs_skipped": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Files listed in CONTEXT.md What to Load that were NOT loaded this run. Empty array if none skipped."
+      },
+      "outputs_produced": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "File paths written during this run, relative to workspace root."
+      },
+      "audit_flags": {
+        "type": "array",
+        "description": "Results of the stage's Audit section checklist.",
+        "items": {
+          "type": "object",
+          "required": ["item", "result"],
+          "properties": {
+            "item": {
+              "type": "string",
+              "description": "The audit checklist item text."
+            },
+            "result": {
+              "type": "string",
+              "enum": ["PASS", "FAIL", "SKIP"],
+              "description": "SKIP only when the item is not applicable to this run."
+            }
+          }
+        }
+      },
+      "routing_confidence": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1,
+        "description": "Optional. For intake-pipeline stages only. Confidence score (0–1) of the routing decision made."
+      },
+      "notes": {
+        "type": "string",
+        "description": "Optional. Free-text notes from the agent. Max 200 characters."
+      }
+    },
+    "additionalProperties": false
+  }
+}

@@ -1,0 +1,10 @@
+# INFERENCE LOG — knowledge-graph scope
+# Format: [ISO-8601-timestamp] | [program] | [file-consulted] | inferred "[what]" — no file states this
+# Cross-project inferences → root _meta/gaps/pending.txt instead
+# Do not edit existing entries. Only append.
+
+2026-03-13T00:00:00Z | _planning | conversation | inferred "project knowledge-graph scaffolded from conversation — user specified: Data/ folder, sequential naming, 5D vector, embedded prompt, file selector tool, global ticker" — original conversation
+2026-03-13T00:00:00Z | _planning/adr/004 | prd-source.md | inferred "k=5 default for nearest neighbors — PRD did not specify" — assumption, requires validation
+2026-03-13T00:00:00Z | _planning/adr/005 | prd-source.md | inferred "context-builder runs on-read not batch — PRD did not specify" — assumption, requires validation
+2026-03-13T00:00:00Z | _planning/adr/008 | prd-source.md | inferred "file-selector implemented as Claude tool_use — user said 'the AI's tool' without specifying implementation" — assumption, requires validation
+2026-03-13T00:00:00Z | _planning/adr/007 | prd-source.md | inferred "files deprecated not deleted — PRD did not specify deletion policy" — assumption, requires validation
