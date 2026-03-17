@@ -1,0 +1,74 @@
+# ============================================
+# workspace-blueprint .gitignore
+# Keep: template structure, configs, source code
+# Ignore: raw data, media, runtime artifacts
+# ============================================
+
+# --- Runtime / build artifacts ---
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+node_modules/
+package-lock.json
+*.egg-info/
+dist/
+build/
+
+# --- Media & large binary files ---
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.zip
+*.tar.gz
+*.rar
+*.7z
+
+# --- PDFs (design docs / reference material, not template) ---
+programs/ELEV8/ELEV8/*.pdf
+
+# --- Screenshots & images (raw reference material) ---
+programs/ELEV8/ELEV8/images/
+
+# --- Logs ---
+*.log
+
+# --- Generated / runtime output ---
+programs/watcher/output/
+programs/knowledge-graph/Data/
+
+# --- Session breadcrumbs (conversation-specific, not template) ---
+leftOffHere/
+!leftOffHere/_template.md
+!leftOffHere/MANIFEST.md
+
+# --- Archive (session histories, not template) ---
+_archive/session-histories/
+
+# --- Nested git repos (cloned references) ---
+claude-office-skills-ref/.git/
+
+# --- Intake queue runtime state ---
+_intake/queue/*
+!_intake/queue/.gitkeep
+_intake/processed/*
+!_intake/processed/.gitkeep
+
+# --- OS / editor junk ---
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+*.code-workspace
+
+# --- Env / secrets ---
+.env
+.env.*
+*.key
+*.pem
+credentials.*
