@@ -1,6 +1,11 @@
+"""TradeExecution contract — represents a single position entry or exit across Polymarket or Solana.
+
+Published to ``oracle:trade_execution``. Produced by solana-executor (SOE) and
+the Polymarket execution path. Consumed by knowledge-base for post-mortem generation.
+"""
 from __future__ import annotations
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import ClassVar, Optional
 from enum import Enum
 from datetime import datetime
 import uuid
@@ -51,5 +56,5 @@ class TradeExecution(BaseModel):
     copy_trade_source_wallet: Optional[str] = None
 
     # Redis
-    CHANNEL: str = "oracle:trade_execution"
-    STATE_KEY_PREFIX: str = "oracle:state:positions"  # HSET field = execution_id
+    CHANNEL: ClassVar[str] = "oracle:trade_execution"
+    STATE_KEY_PREFIX: ClassVar[str] = "oracle:state:positions"  # HSET field = execution_id

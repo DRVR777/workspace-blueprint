@@ -1,0 +1,136 @@
+// NEXUS Network Protocol — STATE_SNAPSHOT (type: 0x0007)
+// Priority: A (Metadata). Direction: server → client. Frequency: on connect / resync.
+// Source: simulation-contract.md (world_state_snapshot), world-state-contract.md (object_record, entity_record).
+// Format: Flatbuffers (ADR-006).
+//
+// Full world state snapshot sent to a newly connected client so it can reconstruct
+// the entire visible world without waiting for incremental updates. Also used for
+// resynchronization after a desync is detected.
+//
+// This is a large message — it contains every object and entity in the client's
+// visibility range at the moment of connection. The transport layer may split it
+// across multiple WebSocket frames using the wire frame sequence_number for ordering.
+
+namespace nexus.protocol;
+
+/// Object state enumeration matching world-state-contract.md state_enum.
+enum ObjectState : uint8 {
+  Active    = 0,
+  Damaged   = 1,
+  Destroyed = 2,
+  Dormant   = 3,
+  Unknown   = 255,
+}
+
+/// Physics body category from simulation-contract.md physics_body.category.
+enum BodyCategory : uint8 {
+  Dynamic   = 0,
+  Static    = 1,
+  Kinematic = 2,
+}
+
+/// Collision shape type from simulation-contract.md physics_body.collision_shape.
+enum CollisionShape : uint8 {
+  Sphere     = 0,
+  Box        = 1,
+  ConvexHull = 2,
+}
+
+/// Compact object record for static world objects (buildings, terrain features, items).
+/// Derived from world-state-contract.md OBJECT_RECORD — fields selected for client relevance.
+table SnapshotObject {
+  object_id:      uint64;
+  type_id:        uint32;
+
+  // World-space position (float32 sufficient for snapshot — client corrects via EPU).
+  position_x:     float;
+  position_y:     float;
+  position_z:     float;
+
+  // Orientation quaternion.
+  orientation_w:  float;
+  orientation_x:  float;
+  orientation_y:  float;
+  orientation_z:  float;
+
+  state:          ObjectState = Active;
+  version:        uint64;
+  asset_version:  uint32;
+
+  // Domain ownership — client uses this to route future queries.
+  domain_id:      uint64;
+}
+
+/// Entity record for dynamic entities (players, NPCs) — superset of SnapshotObject.
+/// Derived from world-state-contract.md ENTITY_RECORD.
+table SnapshotEntity {
+  entity_id:      uint64;
+  type_id:        uint32;
+
+  // World-space position.
+  position_x:     float;
+  position_y:     float;
+  position_z:     float;
+
+  // Orientation quaternion.
+  orientation_w:  float;
+  orientation_x:  float;
+  orientation_y:  float;
+  orientation_z:  float;
+
+  // Physics state from simulation-contract.md.
+  body_category:  BodyCategory = Dynamic;
+  velocity_x:     float;
+  velocity_y:     float;
+  velocity_z:     float;
+  mass:           float;
+
+  state:          ObjectState = Active;
+  version:        uint64;
+  domain_id:      uint64;
+
+  // Player-specific fields (populated only for player-controlled entities).
+  player_id:      uint64;
+  display_name:   string;
+  auth_level:     uint8;
+}
+
+/// Terrain chunk data for the client's initial visible area.
+/// Derived from world-state-contract.md TERRAIN_CHUNK.
+table SnapshotTerrainChunk {
+  sector_x:       int32;
+  sector_y:       int32;
+  sector_z:       int32;
+  chunk_x:        int32;
+  chunk_y:        int32;
+  chunk_z:        int32;
+  heightmap:      [float];   // (CHUNK_SIZE+1)^2 values, column-major
+  surface_types:  [uint8];   // CHUNK_SIZE^2 values (material/biome per cell)
+  version:        uint32;
+}
+
+/// Complete world state snapshot for client initialization.
+/// Derived from simulation-contract.md WORLD_STATE_SNAPSHOT.
+table StateSnapshot {
+  message_version: uint16 = 1;
+
+  // Current server tick at the time of snapshot capture.
+  tick_number:     uint64;
+
+  // Server wall-clock time when snapshot was captured.
+  timestamp_ms:    uint64;
+
+  // Domain this snapshot covers.
+  domain_id:       uint64;
+
+  // All static objects visible to the connecting client.
+  objects:         [SnapshotObject];
+
+  // All dynamic entities (players, NPCs) visible to the connecting client.
+  entities:        [SnapshotEntity];
+
+  // Terrain chunks in the client's initial visibility range.
+  terrain_chunks:  [SnapshotTerrainChunk];
+}
+
+root_type StateSnapshot;

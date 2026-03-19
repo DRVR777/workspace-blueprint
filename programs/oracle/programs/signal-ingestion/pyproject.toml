@@ -10,6 +10,7 @@ dependencies = [
     "oracle-shared",
     "redis[hiredis]>=5.0",
     "httpx>=0.27",
+    "websockets>=12.0",
     "py-clob-client>=0.18",
     "apscheduler>=3.10",
     "python-dotenv>=1.0",

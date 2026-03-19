@@ -7,7 +7,7 @@
 | `type` | program |
 | `depth` | 4 |
 | `parent` | oracle/programs/ |
-| `status` | specced |
+| `status` | active |
 
 ## What I Am
 The Whale & Anomaly Detection Engine (WADE). Subscribes to on-chain Signals from SIL, scores anomalies, maintains the wallet registry in Redis, surfaces copy-trade opportunities as OperatorAlerts.

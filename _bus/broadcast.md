@@ -25,499 +25,89 @@
 - Cross-agent questions → post here + target inbox (this file)
 <!-- /MSG -->
 
-<!-- MSG 2026-03-16T05:00:55+00:00 | FROM: convention-checker | TO: unknown-agent | TYPE: convention-violation -->
-🔴 **[ERROR]** `P-25`
-**File:** `_intake/processed`
-**Issue:** Directory missing MANIFEST.md
-**Fix:** See `_core/CONVENTIONS.md #P-25`
+<!-- MSG 2026-03-18T17:34:53+00:00 | FROM: convention-checker | TO: all | TYPE: alert -->
+Convention scan complete: **17 violations** found (4731 files, 935 dirs scanned). Details in `_bus/convention_violations.md`.
 <!-- /MSG -->
 
-<!-- MSG 2026-03-16T05:00:55+00:00 | FROM: convention-checker | TO: unknown-agent | TYPE: convention-violation -->
-🔴 **[ERROR]** `P-25`
-**File:** `_intake/queue`
-**Issue:** Directory missing MANIFEST.md
-**Fix:** See `_core/CONVENTIONS.md #P-25`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: unknown-agent | TYPE: convention-violation -->
-🔴 **[ERROR]** `P-25`
-**File:** `_intake/processed`
-**Issue:** Directory missing MANIFEST.md
-**Fix:** See `_core/CONVENTIONS.md #P-25`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: unknown-agent | TYPE: convention-violation -->
-🔴 **[ERROR]** `P-25`
-**File:** `_intake/queue`
-**Issue:** Directory missing MANIFEST.md
-**Fix:** See `_core/CONVENTIONS.md #P-25`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: meta-agent | TYPE: convention-violation -->
-🟡 **[WARN]** `P-15`
-**File:** `_meta/scripts/status.py`
-**Issue:** Possible import of output/ artifact. Output files are artifacts, not references. Import from source or shared/contracts/ instead.
-**Fix:** See `_core/CONVENTIONS.md #P-15`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: unknown-agent | TYPE: convention-violation -->
-🔴 **[ERROR]** `P-25`
-**File:** `campaigns`
-**Issue:** Directory missing MANIFEST.md
-**Fix:** See `_core/CONVENTIONS.md #P-25`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: unknown-agent | TYPE: convention-violation -->
-🔴 **[ERROR]** `P-25`
-**File:** `campaigns/game_engine`
-**Issue:** Directory missing MANIFEST.md
-**Fix:** See `_core/CONVENTIONS.md #P-25`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: unknown-agent | TYPE: convention-violation -->
-🔴 **[ERROR]** `P-25`
-**File:** `campaigns/office-skills-refactor`
-**Issue:** Directory missing MANIFEST.md
-**Fix:** See `_core/CONVENTIONS.md #P-25`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: unknown-agent | TYPE: convention-violation -->
-🔴 **[ERROR]** `P-25`
-**File:** `claude-office-skills-ref`
-**Issue:** Directory missing MANIFEST.md
-**Fix:** See `_core/CONVENTIONS.md #P-25`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: unknown-agent | TYPE: convention-violation -->
-🔴 **[ERROR]** `P-25`
-**File:** `claude-office-skills-ref/public`
-**Issue:** Directory missing MANIFEST.md
-**Fix:** See `_core/CONVENTIONS.md #P-25`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: unknown-agent | TYPE: convention-violation -->
-🔴 **[ERROR]** `P-25`
-**File:** `claude-office-skills-ref/public/docx`
-**Issue:** Directory missing MANIFEST.md
-**Fix:** See `_core/CONVENTIONS.md #P-25`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: unknown-agent | TYPE: convention-violation -->
-🔴 **[ERROR]** `P-25`
-**File:** `claude-office-skills-ref/public/docx/ooxml`
-**Issue:** Directory missing MANIFEST.md
-**Fix:** See `_core/CONVENTIONS.md #P-25`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: unknown-agent | TYPE: convention-violation -->
-🔴 **[ERROR]** `P-25`
-**File:** `claude-office-skills-ref/public/docx/ooxml/schemas`
-**Issue:** Directory missing MANIFEST.md
-**Fix:** See `_core/CONVENTIONS.md #P-25`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: unknown-agent | TYPE: convention-violation -->
-🔴 **[ERROR]** `P-25`
-**File:** `claude-office-skills-ref/public/docx/ooxml/schemas/ecma`
-**Issue:** Directory missing MANIFEST.md
-**Fix:** See `_core/CONVENTIONS.md #P-25`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: unknown-agent | TYPE: convention-violation -->
-🔴 **[ERROR]** `P-25`
-**File:** `claude-office-skills-ref/public/docx/ooxml/scripts`
-**Issue:** Directory missing MANIFEST.md
-**Fix:** See `_core/CONVENTIONS.md #P-25`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: unknown-agent | TYPE: convention-violation -->
-🔴 **[ERROR]** `P-25`
-**File:** `claude-office-skills-ref/public/docx/scripts`
-**Issue:** Directory missing MANIFEST.md
-**Fix:** See `_core/CONVENTIONS.md #P-25`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: unknown-agent | TYPE: convention-violation -->
-🔴 **[ERROR]** `P-25`
-**File:** `claude-office-skills-ref/public/pdf`
-**Issue:** Directory missing MANIFEST.md
-**Fix:** See `_core/CONVENTIONS.md #P-25`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: unknown-agent | TYPE: convention-violation -->
-🔵 **[INFO]** `STRUCT`
-**File:** `claude-office-skills-ref/public/pdf/scripts/check_bounding_boxes.py`
-**Issue:** Python module missing top-level docstring. Add a brief description of what this module does.
-**Fix:** See `_core/CONVENTIONS.md #STRUCT`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: unknown-agent | TYPE: convention-violation -->
-🔵 **[INFO]** `STRUCT`
-**File:** `claude-office-skills-ref/public/pdf/scripts/convert_pdf_to_images.py`
-**Issue:** Python module missing top-level docstring. Add a brief description of what this module does.
-**Fix:** See `_core/CONVENTIONS.md #STRUCT`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: unknown-agent | TYPE: convention-violation -->
-🔵 **[INFO]** `STRUCT`
-**File:** `claude-office-skills-ref/public/pdf/scripts/create_validation_image.py`
-**Issue:** Python module missing top-level docstring. Add a brief description of what this module does.
-**Fix:** See `_core/CONVENTIONS.md #STRUCT`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: unknown-agent | TYPE: convention-violation -->
-🔵 **[INFO]** `STRUCT`
-**File:** `claude-office-skills-ref/public/pdf/scripts/extract_form_field_info.py`
-**Issue:** Python module missing top-level docstring. Add a brief description of what this module does.
-**Fix:** See `_core/CONVENTIONS.md #STRUCT`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: unknown-agent | TYPE: convention-violation -->
-🔵 **[INFO]** `STRUCT`
-**File:** `claude-office-skills-ref/public/pdf/scripts/fill_fillable_fields.py`
-**Issue:** Python module missing top-level docstring. Add a brief description of what this module does.
-**Fix:** See `_core/CONVENTIONS.md #STRUCT`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: unknown-agent | TYPE: convention-violation -->
-🔵 **[INFO]** `STRUCT`
-**File:** `claude-office-skills-ref/public/pdf/scripts/fill_pdf_form_with_annotations.py`
-**Issue:** Python module missing top-level docstring. Add a brief description of what this module does.
-**Fix:** See `_core/CONVENTIONS.md #STRUCT`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: unknown-agent | TYPE: convention-violation -->
-🔴 **[ERROR]** `P-25`
-**File:** `claude-office-skills-ref/public/pptx`
-**Issue:** Directory missing MANIFEST.md
-**Fix:** See `_core/CONVENTIONS.md #P-25`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: unknown-agent | TYPE: convention-violation -->
-🔴 **[ERROR]** `P-25`
-**File:** `claude-office-skills-ref/public/pptx/ooxml`
-**Issue:** Directory missing MANIFEST.md
-**Fix:** See `_core/CONVENTIONS.md #P-25`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: unknown-agent | TYPE: convention-violation -->
-🔴 **[ERROR]** `P-25`
-**File:** `claude-office-skills-ref/public/pptx/ooxml/schemas`
-**Issue:** Directory missing MANIFEST.md
-**Fix:** See `_core/CONVENTIONS.md #P-25`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: unknown-agent | TYPE: convention-violation -->
-🔴 **[ERROR]** `P-25`
-**File:** `claude-office-skills-ref/public/pptx/ooxml/schemas/ecma`
-**Issue:** Directory missing MANIFEST.md
-**Fix:** See `_core/CONVENTIONS.md #P-25`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: unknown-agent | TYPE: convention-violation -->
-🔴 **[ERROR]** `P-25`
-**File:** `claude-office-skills-ref/public/pptx/ooxml/scripts`
-**Issue:** Directory missing MANIFEST.md
-**Fix:** See `_core/CONVENTIONS.md #P-25`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: unknown-agent | TYPE: convention-violation -->
-🔴 **[ERROR]** `P-25`
-**File:** `community/content`
-**Issue:** Directory missing MANIFEST.md
-**Fix:** See `_core/CONVENTIONS.md #P-25`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: unknown-agent | TYPE: convention-violation -->
-🔴 **[ERROR]** `P-25`
-**File:** `community/docs`
-**Issue:** Directory missing MANIFEST.md
-**Fix:** See `_core/CONVENTIONS.md #P-25`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: unknown-agent | TYPE: convention-violation -->
-🔴 **[ERROR]** `P-25`
-**File:** `New folder`
-**Issue:** Directory missing MANIFEST.md
-**Fix:** See `_core/CONVENTIONS.md #P-25`
-<!-- /MSG -->
+<!-- MSG 2026-03-18T18:15:00Z | FROM: game-agent | TO: broadcast | TYPE: status -->
+GAP-011 supplemental schemas complete. 5 new schema files written to `shared/schemas/`:
+- `state_snapshot.fbs` — full world state snapshot (objects, entities, terrain) for client init/resync
+- `asset_ref.fbs` — asset references with per-tier LOD metadata
+- `spatial_query.fbs` — octree spatial query request/response (radius + box queries)
+- `action.proto` — high-level player actions (interact, build, craft, pickup, drop, use)
+- `admin.proto` — server admin commands (shutdown, migrate, spawn, despawn, kick, ban, set property, query status)
 
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: unknown-agent | TYPE: convention-violation -->
-🔴 **[ERROR]** `P-25`
-**File:** `production`
-**Issue:** Directory missing MANIFEST.md
-**Fix:** See `_core/CONVENTIONS.md #P-25`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: unknown-agent | TYPE: convention-violation -->
-🔴 **[ERROR]** `P-25`
-**File:** `production/src`
-**Issue:** Directory missing MANIFEST.md
-**Fix:** See `_core/CONVENTIONS.md #P-25`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: unknown-agent | TYPE: convention-violation -->
-🔴 **[ERROR]** `P-25`
-**File:** `production/workflows`
-**Issue:** Directory missing MANIFEST.md
-**Fix:** See `_core/CONVENTIONS.md #P-25`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: unknown-agent | TYPE: convention-violation -->
-🔴 **[ERROR]** `P-25`
-**File:** `programs/_template/_planning`
-**Issue:** Directory missing MANIFEST.md
-**Fix:** See `_core/CONVENTIONS.md #P-25`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: unknown-agent | TYPE: convention-violation -->
-🔴 **[ERROR]** `P-25`
-**File:** `programs/ELEV8/ELEV8`
-**Issue:** Directory missing MANIFEST.md
-**Fix:** See `_core/CONVENTIONS.md #P-25`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: game-agent | TYPE: convention-violation -->
-🔴 **[ERROR]** `P-25`
-**File:** `programs/game_engine/_meta`
-**Issue:** Directory missing MANIFEST.md
-**Fix:** See `_core/CONVENTIONS.md #P-25`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: game-agent | TYPE: convention-violation -->
-🔴 **[ERROR]** `P-25`
-**File:** `programs/game_engine/_planning`
-**Issue:** Directory missing MANIFEST.md
-**Fix:** See `_core/CONVENTIONS.md #P-25`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: game-agent | TYPE: convention-violation -->
-🔴 **[ERROR]** `P-25`
-**File:** `programs/game_engine/engine/programs`
-**Issue:** Directory missing MANIFEST.md
-**Fix:** See `_core/CONVENTIONS.md #P-25`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: game-agent | TYPE: convention-violation -->
-🔴 **[ERROR]** `P-25`
-**File:** `programs/game_engine/shared`
-**Issue:** Directory missing MANIFEST.md
-**Fix:** See `_core/CONVENTIONS.md #P-25`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: game-agent | TYPE: convention-violation -->
-🔴 **[ERROR]** `P-25`
-**File:** `programs/game_engine/world/programs`
-**Issue:** Directory missing MANIFEST.md
-**Fix:** See `_core/CONVENTIONS.md #P-25`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: game-agent | TYPE: convention-violation -->
-🔴 **[ERROR]** `P-25`
-**File:** `programs/game_engine/world/programs/node-manager/src`
-**Issue:** Directory missing MANIFEST.md
-**Fix:** See `_core/CONVENTIONS.md #P-25`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: game-agent | TYPE: convention-violation -->
-🟡 **[WARN]** `P-15`
-**File:** `programs/game_engine/world/programs/node-manager/src/stubs/ticker_log_stub.py`
-**Issue:** Possible import of output/ artifact. Output files are artifacts, not references. Import from source or shared/contracts/ instead.
-**Fix:** See `_core/CONVENTIONS.md #P-15`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: game-agent | TYPE: convention-violation -->
-🟡 **[WARN]** `P-15`
-**File:** `programs/game_engine/world/programs/node-manager/src/tests/test_integration.py`
-**Issue:** Possible import of output/ artifact. Output files are artifacts, not references. Import from source or shared/contracts/ instead.
-**Fix:** See `_core/CONVENTIONS.md #P-15`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: game-agent | TYPE: convention-violation -->
-🔴 **[ERROR]** `P-25`
-**File:** `programs/game_engine/world/programs/spatial/src`
-**Issue:** Directory missing MANIFEST.md
-**Fix:** See `_core/CONVENTIONS.md #P-25`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: kg-agent | TYPE: convention-violation -->
-🔴 **[ERROR]** `P-25`
-**File:** `programs/knowledge-graph/research/01-k-value-optimization`
-**Issue:** Directory missing MANIFEST.md
-**Fix:** See `_core/CONVENTIONS.md #P-25`
-<!-- /MSG -->
+All schemas derive from existing contracts, use `nexus.protocol` namespace (matching existing schemas), and are consistent with entity ID types across the protocol. README.md updated with all new entries.
 
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: kg-agent | TYPE: convention-violation -->
-🔴 **[ERROR]** `P-25`
-**File:** `programs/knowledge-graph/research/02-vector-heuristic-accuracy`
-**Issue:** Directory missing MANIFEST.md
-**Fix:** See `_core/CONVENTIONS.md #P-25`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: kg-agent | TYPE: convention-violation -->
-🔴 **[ERROR]** `P-25`
-**File:** `programs/knowledge-graph/research/03-neighbor-relevance`
-**Issue:** Directory missing MANIFEST.md
-**Fix:** See `_core/CONVENTIONS.md #P-25`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: kg-agent | TYPE: convention-violation -->
-🔴 **[ERROR]** `P-25`
-**File:** `programs/knowledge-graph/research/04-embedded-prompt-effectiveness`
-**Issue:** Directory missing MANIFEST.md
-**Fix:** See `_core/CONVENTIONS.md #P-25`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: kg-agent | TYPE: convention-violation -->
-🔴 **[ERROR]** `P-25`
-**File:** `programs/knowledge-graph/research/05-trigger-mode-comparison`
-**Issue:** Directory missing MANIFEST.md
-**Fix:** See `_core/CONVENTIONS.md #P-25`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: kg-agent | TYPE: convention-violation -->
-🔴 **[ERROR]** `P-25`
-**File:** `programs/knowledge-graph/research/06-tool-vs-mcp`
-**Issue:** Directory missing MANIFEST.md
-**Fix:** See `_core/CONVENTIONS.md #P-25`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: kg-agent | TYPE: convention-violation -->
-🔴 **[ERROR]** `P-25`
-**File:** `programs/knowledge-graph/research/07-ticker-as-emergent-graph`
-**Issue:** Directory missing MANIFEST.md
-**Fix:** See `_core/CONVENTIONS.md #P-25`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: kg-agent | TYPE: convention-violation -->
-🔴 **[ERROR]** `P-25`
-**File:** `programs/knowledge-graph/research/08-scalability`
-**Issue:** Directory missing MANIFEST.md
-**Fix:** See `_core/CONVENTIONS.md #P-25`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: kg-agent | TYPE: convention-violation -->
-🔴 **[ERROR]** `P-25`
-**File:** `programs/knowledge-graph/research/09-context-file-utility`
-**Issue:** Directory missing MANIFEST.md
-**Fix:** See `_core/CONVENTIONS.md #P-25`
-<!-- /MSG -->
+Also fixed 2 P-15 convention violations (removed `output/` path references from ticker_log_stub.py and test_integration.py).
 
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: kg-agent | TYPE: convention-violation -->
-🔴 **[ERROR]** `P-25`
-**File:** `programs/knowledge-graph/research/10-5d-vs-highdim`
-**Issue:** Directory missing MANIFEST.md
-**Fix:** See `_core/CONVENTIONS.md #P-25`
+Total schema count: 13 .fbs + 8 .proto = 21 schema files. Ready for Phase 0 node-manager implementation.
 <!-- /MSG -->
 
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: kg-agent | TYPE: convention-violation -->
-🟡 **[WARN]** `P-16`
-**File:** `programs/knowledge-graph/run_session.py`
-**Issue:** Magic values detected — move to shared constants: line 155: hardcoded port/address `80`
-**Fix:** See `_core/CONVENTIONS.md #P-16`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: oracle-agent | TYPE: convention-violation -->
-🔴 **[ERROR]** `P-25`
-**File:** `programs/oracle/_meta`
-**Issue:** Directory missing MANIFEST.md
-**Fix:** See `_core/CONVENTIONS.md #P-25`
-<!-- /MSG -->
+<!-- MSG 2026-03-18T18:15:00+00:00 | FROM: oracle-agent | TO: broadcast | TYPE: status -->
+signal-ingestion Phase 1 build complete. All 8 adapters wired and running concurrently.
 
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: oracle-agent | TYPE: convention-violation -->
-🔴 **[ERROR]** `P-25`
-**File:** `programs/oracle/_planning`
-**Issue:** Directory missing MANIFEST.md
-**Fix:** See `_core/CONVENTIONS.md #P-25`
-<!-- /MSG -->
-
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: oracle-agent | TYPE: convention-violation -->
-🔴 **[ERROR]** `P-25`
-**File:** `programs/oracle/oracle-shared`
-**Issue:** Directory missing MANIFEST.md
-**Fix:** See `_core/CONVENTIONS.md #P-25`
-<!-- /MSG -->
+**Convention violations fixed (12):**
+- Added docstrings to all 10 oracle-shared contract files
+- Moved hardcoded port `80` in operator_alert.py to `ALERT_TITLE_MAX_LENGTH` constant
+- Moved hardcoded `6379` in __main__.py to `signal_ingestion.config.REDIS_URL` (env-var-backed)
 
-<!-- MSG 2026-03-16T05:01:10+00:00 | FROM: convention-checker | TO: oracle-agent | TYPE: convention-violation -->
-🔴 **[ERROR]** `P-25`
-**File:** `programs/oracle/oracle-shared/oracle_shared`
-**Issue:** Directory missing MANIFEST.md
-**Fix:** See `_core/CONVENTIONS.md #P-25`
-<!-- /MSG -->
+**Build work:**
+- Created `signal_ingestion/config.py` — centralized env-var configuration for all adapters
+- Rewrote `__main__.py` to start all 8 adapters via `asyncio.gather` with config-driven params
+- Updated all adapters to use `Signal.CHANNEL` instead of hardcoded `"oracle:signal"` string
+- Made all contract CHANNEL/STATE_KEY_PREFIX fields `ClassVar[str]` for Pydantic correctness
+- Created MANIFEST.md for adapters/, tests/ directories (P-25 compliance)
+- Updated CLAUDE.md navigation files with real content
 
-<!-- MSG 2026-03-16T05:01:11+00:00 | FROM: convention-checker | TO: oracle-agent | TYPE: convention-violation -->
-🔵 **[INFO]** `STRUCT`
-**File:** `programs/oracle/oracle-shared/oracle_shared/contracts/__init__.py`
-**Issue:** Python module missing top-level docstring. Add a brief description of what this module does.
-**Fix:** See `_core/CONVENTIONS.md #STRUCT`
-<!-- /MSG -->
+**Adapter status:** polymarket_rest, polymarket_ws, polygon_onchain, newsapi, wikipedia, reddit, birdeye_ws, ai_opinion — all 8 implemented and integrated.
 
-<!-- MSG 2026-03-16T05:01:11+00:00 | FROM: convention-checker | TO: oracle-agent | TYPE: convention-violation -->
-🔵 **[INFO]** `STRUCT`
-**File:** `programs/oracle/oracle-shared/oracle_shared/contracts/anomaly_event.py`
-**Issue:** Python module missing top-level docstring. Add a brief description of what this module does.
-**Fix:** See `_core/CONVENTIONS.md #STRUCT`
+**Next:** whale-detector (WADE) build.
 <!-- /MSG -->
 
-<!-- MSG 2026-03-16T05:01:11+00:00 | FROM: convention-checker | TO: oracle-agent | TYPE: convention-violation -->
-🔵 **[INFO]** `STRUCT`
-**File:** `programs/oracle/oracle-shared/oracle_shared/contracts/insight.py`
-**Issue:** Python module missing top-level docstring. Add a brief description of what this module does.
-**Fix:** See `_core/CONVENTIONS.md #STRUCT`
-<!-- /MSG -->
+<!-- MSG 2026-03-18T18:15:00Z | FROM: kg-agent | TO: broadcast | TYPE: status -->
+Knowledge graph populated with real workspace content. Graph is now useful for all agents.
 
-<!-- MSG 2026-03-16T05:01:11+00:00 | FROM: convention-checker | TO: oracle-agent | TYPE: convention-violation -->
-🔵 **[INFO]** `STRUCT`
-**File:** `programs/oracle/oracle-shared/oracle_shared/contracts/market_state.py`
-**Issue:** Python module missing top-level docstring. Add a brief description of what this module does.
-**Fix:** See `_core/CONVENTIONS.md #STRUCT`
-<!-- /MSG -->
+**Work completed:**
+- Fixed P-16 convention violation in run_session.py (magic value 80 -> PREVIEW_MAX_CHARS constant)
+- Created 20 new data files (file0026-file0045) with navigable summaries of real workspace docs
+- Ran indexer batch: all 45 files indexed with 5D vectors and k=5 neighbors
+- Updated Data/index.md (all 45 entries, all marked indexed)
+- Generated Data/graph.json (45 nodes, 183 edges)
+- All 45 files pass validation
 
-<!-- MSG 2026-03-16T05:01:11+00:00 | FROM: convention-checker | TO: oracle-agent | TYPE: convention-violation -->
-🟡 **[WARN]** `P-16`
-**File:** `programs/oracle/oracle-shared/oracle_shared/contracts/operator_alert.py`
-**Issue:** Magic values detected — move to shared constants: line 27: hardcoded port/address `80`
-**Fix:** See `_core/CONVENTIONS.md #P-16`
-<!-- /MSG -->
+**Documents loaded (20 new):**
+- _core/CONVENTIONS.md (28 architectural patterns)
+- _meta/runner.md, ur-prompt.md, prd-intake.md, spec-review.md (session infrastructure)
+- ORACLE PRD, CONTEXT.md, CLAUDE.md (oracle project docs)
+- NEXUS PRD, CONTEXT.md, CLAUDE.md (game_engine project docs)
+- START-HERE.md (workspace onboarding)
+- ORACLE ADRs: 001, 004, 005, 006, 023 (event bus, reasoning engine, markdown vault, circuit breakers, Python stack)
+- NEXUS ADRs: 001, 002, 006 (sector size, spatial index, serialization format)
 
-<!-- MSG 2026-03-16T05:01:11+00:00 | FROM: convention-checker | TO: oracle-agent | TYPE: convention-violation -->
-🔵 **[INFO]** `STRUCT`
-**File:** `programs/oracle/oracle-shared/oracle_shared/contracts/operator_alert.py`
-**Issue:** Python module missing top-level docstring. Add a brief description of what this module does.
-**Fix:** See `_core/CONVENTIONS.md #STRUCT`
+**Graph stats:** 45 nodes (1 deprecated, 44 active), 183 edges, all vectors computed.
+**kg_query is now useful** for other agents mid-session — 45 indexed documents covering workspace infrastructure, ORACLE, and NEXUS.
 <!-- /MSG -->
 
-<!-- MSG 2026-03-16T05:01:11+00:00 | FROM: convention-checker | TO: oracle-agent | TYPE: convention-violation -->
-🔵 **[INFO]** `STRUCT`
-**File:** `programs/oracle/oracle-shared/oracle_shared/contracts/post_mortem.py`
-**Issue:** Python module missing top-level docstring. Add a brief description of what this module does.
-**Fix:** See `_core/CONVENTIONS.md #STRUCT`
-<!-- /MSG -->
+<!-- MSG 2026-03-18T19:00:00Z | FROM: oracle-agent | TO: broadcast | TYPE: status -->
+whale-detector (WADE) build complete. All 8 CONTEXT.md build steps implemented.
 
-<!-- MSG 2026-03-16T05:01:11+00:00 | FROM: convention-checker | TO: oracle-agent | TYPE: convention-violation -->
-🔵 **[INFO]** `STRUCT`
-**File:** `programs/oracle/oracle-shared/oracle_shared/contracts/signal.py`
-**Issue:** Python module missing top-level docstring. Add a brief description of what this module does.
-**Fix:** See `_core/CONVENTIONS.md #STRUCT`
-<!-- /MSG -->
+**Pipeline modules (6 files):**
+- `signal_subscriber.py` — subscribes to Signal.CHANNEL, filters on_chain + polygon_clob
+- `threshold_flagger.py` — reads `oracle:state:params:large_order_threshold_usd` (default $5k), flags large orders
+- `wallet_registry.py` — HGET/HSET WalletProfile in `oracle:state:wallets`, rolling median of last 20 fills, algorithmic tier assignment
+- `anomaly_scorer.py` — 3-factor weighted score: size/liquidity, size/typical, time-to-resolution (all clamped 0-1)
+- `cascade_detector.py` — Redis sorted set `oracle:state:cascade:{market}:{outcome}`, 300s window, >=3 wallets triggers cascade_buy
+- `event_emitter.py` — publishes AnomalyEvent to `oracle:anomaly_event`, OperatorAlert to `oracle:operator_alert` if copy_trade_eligible
 
-<!-- MSG 2026-03-16T05:01:11+00:00 | FROM: convention-checker | TO: oracle-agent | TYPE: convention-violation -->
-🔵 **[INFO]** `STRUCT`
-**File:** `programs/oracle/oracle-shared/oracle_shared/contracts/trade_execution.py`
-**Issue:** Python module missing top-level docstring. Add a brief description of what this module does.
-**Fix:** See `_core/CONVENTIONS.md #STRUCT`
-<!-- /MSG -->
+**Infrastructure:**
+- `config.py` — all constants env-var-backed, same pattern as signal-ingestion
+- `__main__.py` — async entry point with graceful shutdown
+- `pyproject.toml`, CLAUDE.md, MANIFEST.md (x3)
+- `tests/test_pipeline.py` — integration tests for steps 2-5, 8
 
-<!-- MSG 2026-03-16T05:01:11+00:00 | FROM: convention-checker | TO: oracle-agent | TYPE: convention-violation -->
-🔵 **[INFO]** `STRUCT`
-**File:** `programs/oracle/oracle-shared/oracle_shared/contracts/trade_thesis.py`
-**Issue:** Python module missing top-level docstring. Add a brief description of what this module does.
-**Fix:** See `_core/CONVENTIONS.md #STRUCT`
-<!-- /MSG -->
+**Contracts used:** Signal, AnomalyEvent, WalletProfile, OperatorAlert (all from oracle-shared, no redefinitions)
+**Convention compliance:** P-25 (MANIFEST.md on all new folders), P-16 (no magic numbers), P-04 (no cross-program imports), P-23 (all channels via ClassVar)
 
-<!-- MSG 2026-03-16T05:01:11+00:00 | FROM: convention-checker | TO: oracle-agent | TYPE: convention-violation -->
-🔵 **[INFO]** `STRUCT`
-**File:** `programs/oracle/oracle-shared/oracle_shared/contracts/wallet_profile.py`
-**Issue:** Python module missing top-level docstring. Add a brief description of what this module does.
-**Fix:** See `_core/CONVENTIONS.md #STRUCT`
+**Next:** osint-fusion (OSFE) build.
 <!-- /MSG -->

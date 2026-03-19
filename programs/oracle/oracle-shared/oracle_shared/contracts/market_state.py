@@ -1,6 +1,11 @@
+"""MarketState contract — rolling state snapshot for a single Polymarket market.
+
+Maintained in Redis by osint-fusion. Published to ``oracle:market_state`` on updates.
+Read by reasoning-engine for context assembly.
+"""
 from __future__ import annotations
 from pydantic import BaseModel
-from typing import Optional
+from typing import ClassVar, Optional
 from datetime import datetime
 
 RECENT_INSIGHTS_WINDOW = 20  # max Insight objects kept in rolling window
@@ -20,5 +25,5 @@ class MarketState(BaseModel):
     whale_event_count_24h:  int = 0
 
     # Redis keys
-    CHANNEL: str = "oracle:market_state"
-    STATE_KEY_PREFIX: str = "oracle:state:markets"  # HSET field = market_id
+    CHANNEL: ClassVar[str] = "oracle:market_state"
+    STATE_KEY_PREFIX: ClassVar[str] = "oracle:state:markets"  # HSET field = market_id

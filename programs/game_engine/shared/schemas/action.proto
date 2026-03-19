@@ -1,0 +1,101 @@
+// NEXUS Network Protocol — ACTION (type: 0x0203)
+// Priority: A (Control). Direction: client → server.
+// Source: world-state-contract.md (change_request), simulation-contract.md (simulation_event).
+// Format: Protobuf (ADR-006).
+//
+// High-level player actions that are NOT position updates. Position updates use
+// the Flatbuffers PLAYER_ACTION with ActionType.Move for zero-copy performance.
+// This Protobuf message handles actions that require richer payloads and benefit
+// from Protobuf's ergonomic field access: interactions, building, crafting, etc.
+//
+// Maps to world-state-contract.md CHANGE_REQUEST types: PROPERTY_CHANGE, CREATE,
+// DESTROY, INTERACT. The MOVE type is excluded — use player_action.fbs instead.
+
+syntax = "proto3";
+package nexus.protocol;
+
+// High-level action type identifiers.
+// Values 0–255 are reserved for core engine actions.
+// Values 256+ are available for world-specific extensions.
+enum HighLevelActionType {
+  INTERACT       = 0;  // Player interacts with a world object
+  BUILD          = 1;  // Player places a constructed object
+  DESTROY_OBJECT = 2;  // Player destroys a world object
+  CRAFT          = 3;  // Player crafts an item from inventory materials
+  PICKUP         = 4;  // Player picks up a world object into inventory
+  DROP           = 5;  // Player drops an inventory item into the world
+  USE_ITEM       = 6;  // Player uses an inventory item (consume, equip, etc.)
+}
+
+// Interaction sub-type for INTERACT actions.
+enum InteractionType {
+  ACTIVATE   = 0;  // Generic activation (doors, switches, levers)
+  INSPECT    = 1;  // Examine an object (returns description)
+  TRADE      = 2;  // Initiate trade with NPC or player
+  TALK       = 3;  // Start dialogue with NPC
+}
+
+// Target specification for actions that operate on a world object.
+message ActionTarget {
+  // Target object ID from the world state. 0 = no target (e.g., crafting from inventory).
+  uint64 object_id = 1;
+
+  // World-space position where the action is directed.
+  // For BUILD: placement position. For DROP: drop location.
+  float position_x = 2;
+  float position_y = 3;
+  float position_z = 4;
+}
+
+// Build-specific parameters.
+message BuildParams {
+  // Object type to create (from the type registry).
+  uint32 type_id = 1;
+
+  // Orientation quaternion for the placed object.
+  float orientation_w = 2;
+  float orientation_x = 3;
+  float orientation_y = 4;
+  float orientation_z = 5;
+}
+
+// Craft-specific parameters.
+message CraftParams {
+  // Recipe identifier from the crafting system.
+  uint32 recipe_id = 1;
+
+  // Quantity to craft. Server validates material availability.
+  uint32 quantity = 2;
+}
+
+// Item use parameters.
+message UseItemParams {
+  // Inventory slot of the item to use.
+  uint32 inventory_slot = 1;
+
+  // Optional target (e.g., use healing item on another player).
+  uint64 target_entity_id = 2;
+}
+
+// Top-level action message.
+message Action {
+  HighLevelActionType action_type = 1;
+
+  // Client-generated monotonically increasing sequence number.
+  // Server echoes this in ACTION_ACKNOWLEDGMENT.
+  uint32 sequence_number = 2;
+
+  // True if the server must send ACTION_ACKNOWLEDGMENT.
+  // All high-level actions default to requiring acknowledgment since they
+  // have permanent consequences (unlike position updates).
+  bool requires_ack = 3;
+
+  // Target of the action (object and/or position).
+  ActionTarget target = 4;
+
+  // Action-type-specific parameters (only one should be populated).
+  InteractionType interaction_type = 5;  // For INTERACT
+  BuildParams build_params = 6;          // For BUILD
+  CraftParams craft_params = 7;          // For CRAFT
+  UseItemParams use_item_params = 8;     // For USE_ITEM
+}

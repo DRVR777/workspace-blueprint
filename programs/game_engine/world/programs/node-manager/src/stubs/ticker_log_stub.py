@@ -42,7 +42,7 @@ class TickerEntry:
 
 
 class TickerLogStub:
-    def __init__(self, log_path: str = "output/ticker.jsonl") -> None:
+    def __init__(self, log_path: str = "ticker.jsonl") -> None:
         self._log_path = log_path
         self._sequence = 0
         os.makedirs(os.path.dirname(os.path.abspath(log_path)), exist_ok=True)

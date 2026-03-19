@@ -46,6 +46,15 @@ SKIP_DIRS = {
     ".mypy_cache", ".venv", "venv", ".tox", "output",
 }
 
+# Top-level directories to skip entirely (third-party repos, ALWS example folders)
+SKIP_TOPLEVEL = {
+    "claude-office-skills-ref",   # external git repo, not our code
+    "community",                   # ALWS example workspace (Acme DevRel)
+    "production",                  # ALWS example workspace
+    "writing-room",                # ALWS example workspace
+    "New folder",                  # leftover empty folder
+}
+
 CODE_EXTENSIONS  = {".py", ".ts", ".js", ".rs", ".go"}
 SCHEMA_EXTENSIONS = {".fbs", ".proto", ".json"}
 MAX_VIOLATIONS = 500   # cap the violations file size
@@ -93,23 +102,23 @@ def _post_violation(path: str, rule: str, description: str, severity: str = "war
     )
 
     violations_file = BUS / "convention_violations.md"
-    broadcast_file  = BUS / "broadcast.md"
 
     # check violations file size — stop if too large
     try:
         current = violations_file.read_text(encoding="utf-8")
-        lines   = current.count("\n")
-        if lines > MAX_VIOLATIONS:
+        line_count = current.count("\n")
+        if line_count > MAX_VIOLATIONS:
             return
     except FileNotFoundError:
         pass
 
-    for f in (violations_file, broadcast_file):
-        try:
-            with open(f, "a", encoding="utf-8") as fp:
-                fp.write(block)
-        except OSError:
-            pass
+    # Individual violations go ONLY to convention_violations.md (not broadcast).
+    # Broadcast gets a summary at end of scan — see full_scan().
+    try:
+        with open(violations_file, "a", encoding="utf-8") as fp:
+            fp.write(block)
+    except OSError:
+        pass
 
     print(f"[checker] {severity.upper()} {rule} — {path}")
 
@@ -297,6 +306,13 @@ def check_schema_placement(filepath: Path, rel: str):
 # BATCH RUNNER — check a single file
 # ──────────────────────────────────────────────────────────────────────────────
 
+def _is_skipped(rel: str) -> bool:
+    """Check if a relative path should be skipped entirely."""
+    parts = rel.split("/")
+    if parts and parts[0] in SKIP_TOPLEVEL:
+        return True
+    return False
+
 def check_file(filepath: Path):
     """Run all applicable checks on a single file."""
     try:
@@ -304,10 +320,12 @@ def check_file(filepath: Path):
     except ValueError:
         return
 
-    # skip ignored dirs
+    # skip ignored dirs and top-level exclusions
     if any(part in SKIP_DIRS or part.startswith('.') for part in filepath.parts):
         return
     if "_bus" in filepath.parts:
+        return
+    if _is_skipped(rel):
         return
 
     suffix = filepath.suffix.lower()
@@ -332,6 +350,8 @@ def check_dir(dirpath: Path):
     if any(part in SKIP_DIRS or part.startswith('.') for part in dirpath.parts):
         return
     if "_bus" in dirpath.parts:
+        return
+    if _is_skipped(rel):
         return
     check_p25_manifest(dirpath, rel)
 
@@ -415,6 +435,23 @@ def full_scan():
 
     new_violations = _read_violations_count() - violation_count_before
     print(f"[checker] scan complete — {file_count} files, {dir_count} dirs, {new_violations} new violations")
+
+    # Post a ONE-LINE summary to broadcast (not individual violations)
+    if new_violations > 0:
+        broadcast = BUS / "broadcast.md"
+        ts = _now()
+        summary = (
+            f"\n<!-- MSG {ts} | FROM: convention-checker | TO: all | TYPE: alert -->\n"
+            f"Convention scan complete: **{new_violations} violations** found "
+            f"({file_count} files, {dir_count} dirs scanned). "
+            f"Details in `_bus/convention_violations.md`.\n"
+            f"<!-- /MSG -->\n"
+        )
+        try:
+            with open(broadcast, "a", encoding="utf-8") as fp:
+                fp.write(summary)
+        except OSError:
+            pass
 
 
 def _read_violations_count() -> int:

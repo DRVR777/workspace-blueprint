@@ -1,6 +1,11 @@
+"""WalletProfile contract — reputation and historical statistics for a tracked on-chain wallet.
+
+Stored in Redis at ``oracle:state:wallets``. Maintained by whale-detector (WADE).
+Used for anomaly scoring and copy-trade eligibility decisions.
+"""
 from __future__ import annotations
 from pydantic import BaseModel
-from typing import Optional
+from typing import ClassVar, Optional
 from enum import Enum
 from datetime import datetime
 
@@ -35,4 +40,4 @@ class WalletProfile(BaseModel):
     notes:                      Optional[str] = None
 
     # Redis state key (no channel — state only)
-    STATE_KEY_PREFIX: str = "oracle:state:wallets"  # HSET field = wallet_address
+    STATE_KEY_PREFIX: ClassVar[str] = "oracle:state:wallets"  # HSET field = wallet_address

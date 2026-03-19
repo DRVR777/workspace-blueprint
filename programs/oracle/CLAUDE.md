@@ -11,8 +11,8 @@ If program internals appear here, remove them.
 
 | Program | Purpose | Status |
 |---------|---------|--------|
-| `signal-ingestion` | SIL — continuously polls Polymarket REST/WS, Polygon on-chain events, OSINT feeds, Solana oracles, and AI opinion streams; normalizes everything into canonical Signal objects | scaffold |
-| `whale-detector` | WADE — watches on-chain fills for large orders, scores anomalies, maintains wallet registry, surfaces copy-trade opportunities | scaffold |
+| `signal-ingestion` | SIL — continuously polls Polymarket REST/WS, Polygon on-chain events, OSINT feeds, Solana oracles, and AI opinion streams; normalizes everything into canonical Signal objects | active |
+| `whale-detector` | WADE — watches on-chain fills for large orders, scores anomalies, maintains wallet registry, surfaces copy-trade opportunities | active |
 | `osint-fusion` | OSFE — embeds incoming signals, runs semantic similarity against active markets, maintains rolling semantic state per market | scaffold |
 | `solana-executor` | SOE — autonomous mean-reversion trader: monitors configured assets, computes statistical model + AI floor estimate, executes entries and exits | scaffold |
 | `reasoning-engine` | RE — multi-pass reasoning: assembles context → generates adversarial hypotheses → weights evidence → calibrates confidence → emits TradeThesis | scaffold |

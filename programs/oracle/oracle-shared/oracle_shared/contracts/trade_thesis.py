@@ -1,6 +1,11 @@
+"""TradeThesis contract — the multi-pass reasoning output for a single market position decision.
+
+Published to ``oracle:trade_thesis``. Produced by reasoning-engine (RE). Consumed by
+solana-executor, operator-dashboard, and knowledge-base.
+"""
 from __future__ import annotations
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import ClassVar, Optional
 from enum import Enum
 from datetime import datetime
 import uuid
@@ -63,4 +68,4 @@ class TradeThesis(BaseModel):
     vault_path:                 Optional[str] = None
 
     # Redis channel
-    CHANNEL: str = "oracle:trade_thesis"
+    CHANNEL: ClassVar[str] = "oracle:trade_thesis"

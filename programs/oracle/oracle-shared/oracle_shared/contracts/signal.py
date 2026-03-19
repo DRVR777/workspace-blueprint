@@ -1,6 +1,12 @@
+"""Signal contract — canonical schema for all data ingested by signal-ingestion (SIL).
+
+Every adapter normalizes raw source data into a Signal and publishes it to the
+``oracle:signal`` Redis channel. Downstream consumers (whale-detector, osint-fusion)
+validate incoming messages against this schema.
+"""
 from __future__ import annotations
 from pydantic import BaseModel, Field
-from typing import Any, Optional
+from typing import Any, ClassVar, Optional
 from enum import Enum
 from datetime import datetime
 import uuid
@@ -35,4 +41,4 @@ class Signal(BaseModel):
     market_ids:  Optional[list[str]] = None  # pre-associated market IDs if SIL can determine
 
     # Redis channel
-    CHANNEL: str = "oracle:signal"
+    CHANNEL: ClassVar[str] = "oracle:signal"

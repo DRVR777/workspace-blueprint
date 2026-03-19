@@ -5,15 +5,21 @@
 
 # ── Infrastructure ────────────────────────────────────────────────────────────
 
-up:         ## Start Redis (required before running any program)
+up:         ## Start Redis + Postgres (required before running any program)
 	docker compose up -d
-	@echo "Redis running at localhost:6379"
+	@echo "Redis at localhost:6379  |  Postgres at localhost:5432 (oracle/oracle)"
 
-down:       ## Stop Redis
+down:       ## Stop Redis + Postgres
 	docker compose down
 
-logs:       ## Tail Redis logs
-	docker compose logs -f redis
+logs:       ## Tail service logs
+	docker compose logs -f
+
+db-init:    ## Create all database tables (run once after first 'make up')
+	python scripts/db_init.py
+
+db-reset:   ## Drop and recreate all database tables (DESTROYS DATA)
+	python scripts/db_init.py --reset
 
 # ── Install ───────────────────────────────────────────────────────────────────
 

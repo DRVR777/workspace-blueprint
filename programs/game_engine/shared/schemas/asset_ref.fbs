@@ -1,0 +1,56 @@
+// NEXUS Network Protocol — ASSET_REF (type: 0x0302)
+// Priority: B (Assets). Direction: server → client.
+// Source: asset-store-contract.md, lod-system-contract.md (LOD_BLEND_RESULT).
+// Format: Flatbuffers (ADR-006).
+//
+// Asset reference descriptors and LOD level metadata. Sent to clients when they
+// enter a new area or when asset versions change, so the client knows which
+// assets to request and at what LOD tier. The client compares these references
+// against its local asset cache to determine which assets need fetching.
+//
+// This message does NOT contain geometry data — only references. Use ASSET_REQUEST
+// to fetch the actual binary data for any missing or outdated assets.
+
+namespace nexus.protocol;
+
+/// LOD tier descriptor for a single detail level of an object type.
+/// Derived from lod-system-contract.md distance thresholds and
+/// asset-store-contract.md get_asset_metadata.
+struct LodTierDescriptor {
+  /// LOD tier index (0 = highest detail, 4 = lowest, 5 = invisible).
+  tier:               uint8;
+
+  /// Distance from camera at which this tier activates (world units).
+  /// From lod-system-contract.md default distance thresholds.
+  transition_distance: float;
+
+  /// Size in bytes of this tier's geometry data. From asset-store-contract.md.
+  size_bytes:          uint32;
+}
+
+/// Complete asset reference for one object type, including all LOD tiers.
+/// Derived from asset-store-contract.md get_asset_metadata.
+table AssetReference {
+  /// Object type identifier from the type registry.
+  object_type_id:  uint32;
+
+  /// Current asset version — client compares against its cached version.
+  /// From asset-store-contract.md check_version.
+  asset_version:   uint32;
+
+  /// Number of LOD tiers available for this object type (1–5).
+  tier_count:      uint8;
+
+  /// Per-tier metadata. Length equals tier_count.
+  tiers:           [LodTierDescriptor];
+}
+
+/// Batch of asset references sent to a client.
+table AssetRef {
+  message_version: uint16 = 1;
+
+  /// All asset references relevant to the client's current visibility range.
+  references:      [AssetReference];
+}
+
+root_type AssetRef;

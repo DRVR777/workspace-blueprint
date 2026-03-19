@@ -1,0 +1,156 @@
+// NEXUS Network Protocol — ADMIN (type: 0x0400)
+// Priority: A (Control). Direction: client → server (admin client only).
+// Source: node-registry-contract.md, player-session-contract.md.
+// Format: Protobuf (ADR-006).
+//
+// Server administration commands issued by authorized admin clients.
+// All admin commands require auth_level >= 2 (admin) in the session record
+// (player-session-contract.md SESSION_RECORD.auth_level).
+//
+// The server validates the sender's auth_level before executing any command.
+// Unauthorized attempts are rejected with ERROR code 0x8002 (PERMISSION_DENIED)
+// and logged to the ticker log.
+
+syntax = "proto3";
+package nexus.protocol;
+
+// Admin command type identifiers.
+enum AdminCommandType {
+  SHUTDOWN         = 0;  // Gracefully shut down the target node
+  MIGRATE_PLAYERS  = 1;  // Move all players from one node to another
+  SPAWN_ENTITY     = 2;  // Spawn an entity at a specified position
+  DESPAWN_ENTITY   = 3;  // Remove an entity from the world
+  KICK_PLAYER      = 4;  // Disconnect a player with a reason
+  BAN_PLAYER       = 5;  // Ban a player (updates session record status)
+  SET_PROPERTY     = 6;  // Override an object property
+  QUERY_STATUS     = 7;  // Request node status (returns AdminResponse)
+}
+
+// Shutdown parameters.
+message ShutdownParams {
+  // Target node ID. 0 = the node receiving this message.
+  uint64 node_id = 1;
+
+  // Grace period in seconds before forced termination.
+  // During grace period: no new connections accepted, existing players migrated.
+  uint32 grace_period_seconds = 2;
+
+  // Reason string logged to the ticker log.
+  string reason = 3;
+}
+
+// Player migration parameters.
+message MigratePlayersParams {
+  // Source node ID. 0 = the node receiving this message.
+  uint64 source_node_id = 1;
+
+  // Destination node address ("host:port") from node-registry-contract.md.
+  string destination_address = 2;
+}
+
+// Entity spawn parameters.
+message SpawnEntityParams {
+  // Object type from the type registry.
+  uint32 type_id = 1;
+
+  // World-space spawn position.
+  float position_x = 2;
+  float position_y = 3;
+  float position_z = 4;
+
+  // Optional orientation quaternion (defaults to identity).
+  float orientation_w = 5;
+  float orientation_x = 6;
+  float orientation_y = 7;
+  float orientation_z = 8;
+
+  // Optional initial properties as JSON-encoded bytes.
+  // Server parses and validates against the type schema.
+  bytes initial_properties = 9;
+}
+
+// Entity despawn parameters.
+message DespawnEntityParams {
+  // Entity ID to remove.
+  uint64 entity_id = 1;
+
+  // Reason string logged to the ticker log.
+  string reason = 2;
+}
+
+// Player kick parameters.
+message KickPlayerParams {
+  // Player ID (persistent ID from player-session-contract.md).
+  uint64 player_id = 1;
+
+  // Reason shown to the player and logged.
+  string reason = 2;
+}
+
+// Player ban parameters.
+message BanPlayerParams {
+  // Player ID to ban.
+  uint64 player_id = 1;
+
+  // Ban duration in seconds. 0 = permanent.
+  uint64 duration_seconds = 2;
+
+  // Reason logged and stored in session record.
+  string reason = 3;
+}
+
+// Property override parameters.
+message SetPropertyParams {
+  // Target object ID.
+  uint64 object_id = 1;
+
+  // Property name as defined in the object type schema.
+  string property_name = 2;
+
+  // New value encoded as bytes (type determined by property definition).
+  bytes value = 3;
+}
+
+// Top-level admin command message.
+message AdminCommand {
+  AdminCommandType command_type = 1;
+
+  // Admin-assigned command ID — echoed in AdminResponse for correlation.
+  uint32 command_id = 2;
+
+  // Command-type-specific parameters (only one should be populated).
+  ShutdownParams shutdown_params = 3;
+  MigratePlayersParams migrate_params = 4;
+  SpawnEntityParams spawn_params = 5;
+  DespawnEntityParams despawn_params = 6;
+  KickPlayerParams kick_params = 7;
+  BanPlayerParams ban_params = 8;
+  SetPropertyParams set_property_params = 9;
+}
+
+// Server response to an admin command.
+message AdminResponse {
+  // Echoed from AdminCommand.command_id.
+  uint32 command_id = 1;
+
+  // True if the command was accepted and executed (or queued for execution).
+  bool success = 2;
+
+  // Human-readable result or error description.
+  string message = 3;
+
+  // For QUERY_STATUS: node status payload.
+  NodeStatus node_status = 4;
+}
+
+// Node status information returned by QUERY_STATUS.
+// Derived from node-registry-contract.md NODE_DESCRIPTOR.load_metrics.
+message NodeStatus {
+  uint64 node_id = 1;
+  string status = 2;           // "active", "draining", "starting"
+  uint32 client_count = 3;
+  uint32 entity_count = 4;
+  float tick_duration_ratio = 5;  // actual_tick_ms / target_tick_ms
+  uint64 uptime_seconds = 6;
+  uint32 region_id = 7;
+}

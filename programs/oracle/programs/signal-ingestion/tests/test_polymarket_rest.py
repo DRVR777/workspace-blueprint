@@ -35,7 +35,7 @@ async def run_test() -> bool:
 
     # --- validate first signal ---
     channel, payload = redis.messages[0]
-    assert channel == "oracle:signal", f"wrong channel: {channel!r}"
+    assert channel == Signal.CHANNEL, f"wrong channel: {channel!r}"
 
     signal = Signal.model_validate_json(payload)
 

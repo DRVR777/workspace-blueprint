@@ -1,6 +1,10 @@
+"""Insight contract — produced by osint-fusion (OSFE) after embedding a Signal and matching it to active markets.
+
+Published to ``oracle:insight``. Consumed by reasoning-engine to assemble market context.
+"""
 from __future__ import annotations
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import ClassVar, Optional
 from datetime import datetime
 import uuid
 
@@ -29,4 +33,4 @@ class Insight(BaseModel):
     raw_text:                  str            # the text that was embedded
 
     # Redis channel
-    CHANNEL: str = "oracle:insight"
+    CHANNEL: ClassVar[str] = "oracle:insight"

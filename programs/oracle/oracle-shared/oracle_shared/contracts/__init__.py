@@ -1,3 +1,5 @@
+"""ORACLE shared contract models — canonical Pydantic schemas for all inter-program communication."""
+
 from .signal import Signal, SignalCategory, SourceId
 from .anomaly_event import AnomalyEvent
 from .insight import Insight

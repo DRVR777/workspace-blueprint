@@ -5,8 +5,8 @@ Test plan (CONTEXT.md Step 6):
   1. Start node
   2. Connect clients A and B
   3. Verify both receive PLAYER_JOINED for each other
-  4. Move client A → verify B receives EPU with A's new position
-  5. Disconnect A → verify B receives PLAYER_LEFT with A's entity_id
+  4. Move client A -> verify B receives EPU with A's new position
+  5. Disconnect A -> verify B receives PLAYER_LEFT with A's entity_id
   6. Verify all tick durations are < 20ms during the test
 
 Run from src/ directory:
@@ -27,12 +27,14 @@ import websockets
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import codec
+import config
 from node_manager import NodeManager
-from stubs.session_stub    import SessionStub
+from stubs.session_stub import SessionStub
 from stubs.ticker_log_stub import TickerLogStub
+from tick_metrics import TickMetrics
 
 TEST_HOST = "localhost"
-TEST_PORT = 9901   # distinct from default 9000 to avoid conflicts
+TEST_PORT = 9901   # distinct from default to avoid conflicts
 
 # Stable 32-byte auth tokens — same token always produces the same player_id
 TOKEN_A = b"test_player_A_token_000000000000"
@@ -41,6 +43,7 @@ TOKEN_B = b"test_player_B_token_000000000000"
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 async def connect_and_handshake(token: bytes) -> tuple:
     """
@@ -84,11 +87,15 @@ async def recv_type(ws, target_type: int, timeout: float = 3.0) -> bytes:
 
 @pytest.fixture
 async def node():
+    """Start a NodeManager for testing, yield it, then shut down."""
     session = SessionStub()
-    log     = TickerLogStub(log_path="output/test_ticker.jsonl")
-    nm      = NodeManager(host=TEST_HOST, port=TEST_PORT,
-                          session=session, ticker_log=log)
-    task    = asyncio.create_task(nm.run())
+    log = TickerLogStub(log_path="test_ticker.jsonl")
+    metrics = TickMetrics(log_path="test_tick_metrics.jsonl", flush_interval=1000)
+    nm = NodeManager(
+        host=TEST_HOST, port=TEST_PORT,
+        session=session, ticker_log=log, tick_metrics=metrics,
+    )
+    task = asyncio.create_task(nm.run())
     await asyncio.sleep(0.15)   # let websockets.serve() finish binding
     yield nm
     nm._running = False
@@ -104,6 +111,7 @@ async def node():
 # ---------------------------------------------------------------------------
 
 async def test_handshake_accepted(node):
+    """Both clients should receive ACCEPTED with unique entity IDs."""
     ws_a, resp_a = await connect_and_handshake(TOKEN_A)
     ws_b, resp_b = await connect_and_handshake(TOKEN_B)
     try:
@@ -212,6 +220,7 @@ async def test_entity_position_update_after_move(node):
 # ---------------------------------------------------------------------------
 
 async def test_player_left_on_disconnect(node):
+    """Disconnect A and verify B receives PLAYER_LEFT with correct entity_id."""
     ws_a, resp_a = await connect_and_handshake(TOKEN_A)
     await asyncio.sleep(0.05)
     ws_b, resp_b = await connect_and_handshake(TOKEN_B)
@@ -260,7 +269,7 @@ async def test_tick_duration_under_budget(node):
                 payload=codec.encode_move_payload(x, 0.0, z),
             )
             await ws.send(codec.encode_player_action(move))
-            await asyncio.sleep(TARGET_TICK_DURATION)
+            await asyncio.sleep(config.TARGET_TICK_DURATION)
 
     try:
         await asyncio.gather(send_moves(ws_a), send_moves(ws_b))
@@ -277,7 +286,3 @@ async def test_tick_duration_under_budget(node):
     finally:
         await ws_a.close()
         await ws_b.close()
-
-
-# Make TARGET_TICK_DURATION accessible inside the test function
-TARGET_TICK_DURATION = 0.020

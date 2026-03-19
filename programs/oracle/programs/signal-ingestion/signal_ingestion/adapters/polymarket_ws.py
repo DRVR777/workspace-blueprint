@@ -241,7 +241,8 @@ class PolymarketWSAdapter:
     # ── Publish ───────────────────────────────────────────────────────────────
 
     async def _publish(self, signal: Signal) -> None:
-        await self._redis.publish("oracle:signal", signal.model_dump_json())
+        """Publish a normalized Signal to the canonical Redis channel."""
+        await self._redis.publish(Signal.CHANNEL, signal.model_dump_json())
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

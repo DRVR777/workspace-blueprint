@@ -33,6 +33,9 @@ SCRIPT_DIR = Path(__file__).parent
 DATA_DIR = SCRIPT_DIR / "Data"
 FILE_SELECTOR_SRC = SCRIPT_DIR / "programs" / "file-selector" / "src"
 
+# Display constants
+PREVIEW_MAX_CHARS = 80
+
 sys.path.insert(0, str(FILE_SELECTOR_SRC))
 from file_selector import TOOL_SCHEMA, handle_tool_call  # noqa: E402
 
@@ -152,7 +155,7 @@ def run_session(goal: str, start_file: str | None = None, session_id: str = "liv
                     print(f"    → {count} file(s) returned from proximity query")
                 else:
                     fn = result.get("file_number", "?")
-                    preview = result.get("content", "")[:80].replace("\n", " ")
+                    preview = result.get("content", "")[:PREVIEW_MAX_CHARS].replace("\n", " ")
                     print(f"    → file{fn}: {preview}...")
 
                 tool_results.append({

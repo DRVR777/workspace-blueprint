@@ -1,9 +1,17 @@
+"""OperatorAlert contract — notifications pushed to the operator via Telegram and the dashboard.
+
+Published to ``oracle:operator_alert``. Produced by whale-detector, reasoning-engine,
+and system-level circuit breakers. Consumed by operator-dashboard.
+"""
 from __future__ import annotations
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import ClassVar, Optional
 from enum import Enum
 from datetime import datetime
 import uuid
+
+# Maximum character length for alert titles (used as Telegram message header)
+ALERT_TITLE_MAX_LENGTH = 80
 
 
 class AlertType(str, Enum):
@@ -24,7 +32,7 @@ class OperatorAlert(BaseModel):
     created_at:      datetime
     alert_type:      AlertType
     severity:        AlertSeverity
-    title:           str           # < 80 chars — used as Telegram message header
+    title:           str           # max ALERT_TITLE_MAX_LENGTH chars — Telegram header
     body:            str
     action_required: bool
     action_options:  Optional[list[str]] = None  # e.g. ["approve_copy_trade", "dismiss"]
@@ -34,4 +42,4 @@ class OperatorAlert(BaseModel):
     action_taken:    Optional[str]       = None
 
     # Redis channel
-    CHANNEL: str = "oracle:operator_alert"
+    CHANNEL: ClassVar[str] = "oracle:operator_alert"

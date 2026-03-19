@@ -1,6 +1,10 @@
+"""AnomalyEvent contract — emitted by whale-detector (WADE) when an on-chain fill exceeds anomaly thresholds.
+
+Published to ``oracle:anomaly_event``. Consumed by reasoning-engine and operator-dashboard.
+"""
 from __future__ import annotations
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import ClassVar, Optional
 from datetime import datetime
 import uuid
 
@@ -20,4 +24,4 @@ class AnomalyEvent(BaseModel):
     source_signal_id:    str                       # the polygon_clob Signal that triggered this
 
     # Redis channel
-    CHANNEL: str = "oracle:anomaly_event"
+    CHANNEL: ClassVar[str] = "oracle:anomaly_event"

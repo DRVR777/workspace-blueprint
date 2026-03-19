@@ -1,0 +1,86 @@
+// NEXUS Network Protocol — SPATIAL_QUERY (type: 0x0203)
+// Priority: A (Metadata). Direction: bidirectional (C→S request, S→C response).
+// Source: world-state-contract.md (query_radius, query_box), simulation-contract.md.
+// Format: Flatbuffers (ADR-006).
+//
+// Octree spatial query requests and results. Clients use these to query the
+// server for objects within a spatial region (e.g., interaction radius, building
+// placement checks, visibility pre-fetch). The server executes the query against
+// its in-memory octree (ADR-002) and returns matching object references.
+//
+// Query types map directly to world-state-contract.md READ operations:
+//   RadiusQuery  → query_radius(center, radius)
+//   BoxQuery     → query_box(min, max)
+
+namespace nexus.protocol;
+
+/// Query shape — determines which fields the server reads.
+enum SpatialQueryType : uint8 {
+  /// Sphere query: center + radius. Maps to world-state-contract query_radius.
+  Radius = 0,
+
+  /// Axis-aligned bounding box query: min + max corners.
+  /// Maps to world-state-contract query_box.
+  Box    = 1,
+}
+
+/// Client-to-server spatial query request.
+table SpatialQueryRequest {
+  message_version: uint16 = 1;
+
+  /// Client-assigned query ID — echoed in the response for correlation.
+  query_id:     uint32;
+
+  query_type:   SpatialQueryType = Radius;
+
+  // Radius query parameters (used when query_type = Radius).
+  center_x:     float;
+  center_y:     float;
+  center_z:     float;
+  radius:       float;
+
+  // Box query parameters (used when query_type = Box).
+  box_min_x:    float;
+  box_min_y:    float;
+  box_min_z:    float;
+  box_max_x:    float;
+  box_max_y:    float;
+  box_max_z:    float;
+
+  /// Maximum number of results to return. 0 = no limit.
+  /// Server may impose its own cap to prevent abuse.
+  max_results:  uint32 = 0;
+}
+
+/// Single object reference in a spatial query result.
+/// Lightweight — contains only enough to identify and locate the object.
+struct SpatialResultEntry {
+  object_id:    uint64;
+  type_id:      uint32;
+  position_x:   float;
+  position_y:   float;
+  position_z:   float;
+
+  /// Distance from query center (for radius queries) or 0.0 (for box queries).
+  distance:     float;
+}
+
+/// Server-to-client spatial query response.
+table SpatialQueryResponse {
+  message_version: uint16 = 1;
+
+  /// Echoed from the request for client-side correlation.
+  query_id:     uint32;
+
+  /// True if the server truncated results due to max_results or server cap.
+  truncated:    bool = false;
+
+  /// Total number of objects that matched (before truncation).
+  total_count:  uint32;
+
+  /// Matching objects, sorted by distance ascending (for radius queries)
+  /// or arbitrary order (for box queries).
+  results:      [SpatialResultEntry];
+}
+
+root_type SpatialQueryRequest;

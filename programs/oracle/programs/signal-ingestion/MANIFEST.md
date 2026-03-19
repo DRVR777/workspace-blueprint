@@ -7,7 +7,7 @@
 | `type` | program |
 | `depth` | 4 |
 | `parent` | oracle/programs/ |
-| `status` | specced |
+| `status` | active |
 
 ## What I Am
 The Signal Ingestion Layer (SIL). Continuously polls and subscribes to all data sources — Polymarket REST/WS API, Polygon CLOB contract events, OSINT feeds, Solana price oracles, and AI opinion streams — and normalizes everything into canonical Signal objects published to the event bus.
