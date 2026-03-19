@@ -1,0 +1,11 @@
+[package]
+name = "nexus-simulation"
+description = "NEXUS Layer 3: Pure-function tick pipeline — physics step (Rapier), game rules, deterministic simulation"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+nexus-core = { workspace = true }
+nexus-spatial = { workspace = true }
+rapier3d = { workspace = true }
+hecs = { workspace = true }

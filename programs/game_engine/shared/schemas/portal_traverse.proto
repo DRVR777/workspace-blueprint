@@ -1,0 +1,30 @@
+// NEXUS Network Protocol — PORTAL_TRAVERSE (type: 0x0104)
+// Priority: A (Control). Direction: client → server.
+// Source: world-graph-contract.md. Format: Protobuf (ADR-006).
+//
+// Sent when a player walks into a portal's trigger volume.
+// The server validates the portal, checks permissions, and either
+// initiates a NODE_TRANSFER to the target world or returns an ERROR.
+//
+// After sending PORTAL_TRAVERSE:
+//   1. Wait for NODE_TRANSFER (success) or ERROR (failure)
+//   2. If NODE_TRANSFER: begin portal transition animation, connect to new world
+//   3. If ERROR: display error to player, abort traversal
+
+syntax = "proto3";
+package nexus.protocol;
+
+message PortalTraverse {
+  // ID of the portal object the player is entering.
+  uint64 portal_id = 1;
+
+  // Player's current position (server validates proximity to portal).
+  double pos_x = 2;
+  double pos_y = 3;
+  double pos_z = 4;
+
+  // Player's current velocity (for momentum preservation through portal).
+  float vel_x = 5;
+  float vel_y = 6;
+  float vel_z = 7;
+}

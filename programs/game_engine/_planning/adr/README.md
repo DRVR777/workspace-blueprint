@@ -21,6 +21,7 @@
 | ADR-012 | Asset compression algorithm | OPEN — blocks Phase 1 |
 | ADR-013 | Behavior AI evaluation order | OPEN — blocks Phase 3 |
 | ADR-014 | World seed: domain-warped fractal Simplex noise | **ACCEPTED** 2026-03-14 |
+| ADR-015 | Tech stack: TS/R3F client, Rust server, Rapier shared physics, 5-layer arch | **ACCEPTED** 2026-03-18 |
 
 ## ADR Format
 

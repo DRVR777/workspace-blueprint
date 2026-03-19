@@ -1,0 +1,8 @@
+[package]
+name = "nexus-spatial"
+description = "NEXUS Layer 2: In-memory octree spatial index and all spatial query functions"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+nexus-core = { workspace = true }

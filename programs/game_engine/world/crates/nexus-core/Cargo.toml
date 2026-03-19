@@ -1,0 +1,8 @@
+[package]
+name = "nexus-core"
+description = "NEXUS Layer 1: Core primitives — Vec3, Quat, EntityId, PhysicsBody, config types"
+version.workspace = true
+edition.workspace = true
+
+# Zero external dependencies. This crate is pure types and math.
+[dependencies]

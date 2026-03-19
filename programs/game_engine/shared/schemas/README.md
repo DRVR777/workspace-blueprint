@@ -49,6 +49,9 @@ FlatBuffers has no native `float16` type. Fields marked as half-float in the PRD
 | `asset_request.fbs` | ASSET_REQUEST | 0x0201 | C→S | ✅ defined |
 | `asset_chunk.fbs` | ASSET_CHUNK | 0x0300 | S→C | ✅ defined |
 | `asset_complete.fbs` | ASSET_COMPLETE | 0x0301 | S→C | ✅ defined |
+| `state_snapshot.fbs` | STATE_SNAPSHOT | 0x0007 | S→C | ✅ defined |
+| `asset_ref.fbs` | ASSET_REF | 0x0302 | S→C | ✅ defined |
+| `spatial_query.fbs` | SPATIAL_QUERY | 0x0203 | C↔S | ✅ defined |
 
 ### Protobuf (.proto) — Control Messages
 
@@ -60,6 +63,10 @@ FlatBuffers has no native `float16` type. Fields marked as half-float in the PRD
 | `action_acknowledgment.proto` | ACTION_ACKNOWLEDGMENT | 0x0103 | S→C | ✅ defined |
 | `error.proto` | ERROR | 0x01FF | S→C | ✅ defined |
 | `chat_message.proto` | CHAT_MESSAGE | 0x0202 | C→S | ✅ defined |
+| `action.proto` | ACTION | 0x0203 | C→S | ✅ defined |
+| `admin.proto` | ADMIN | 0x0400 | C→S | ✅ defined |
+| `portal_traverse.proto` | PORTAL_TRAVERSE | 0x0104 | C→S | ✅ defined (world-graph-contract) |
+| `world_info.proto` | WORLD_INFO | 0x0105 | S→C | ✅ defined (world-graph-contract) |
 
 ## Generation Process
 

@@ -1,0 +1,17 @@
+[package]
+name = "nexus-node"
+description = "NEXUS Layer 4+5: Node process entry point — tick loop, WebSocket server, protocol codec, broadcasting"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+nexus-core = { workspace = true }
+nexus-spatial = { workspace = true }
+nexus-simulation = { workspace = true }
+tokio = { workspace = true }
+tokio-tungstenite = { workspace = true }
+flatbuffers = { workspace = true }
+prost = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+futures-util = "0.3"

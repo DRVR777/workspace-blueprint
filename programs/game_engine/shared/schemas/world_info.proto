@@ -1,0 +1,39 @@
+// NEXUS Network Protocol — WORLD_INFO (type: 0x0105)
+// Priority: B (Game state). Direction: server → client.
+// Source: world-graph-contract.md. Format: Protobuf (ADR-006).
+//
+// Sent to clients for constellation rendering and map display.
+// Contains metadata about a nearby world in the world graph.
+// Batched: multiple WORLD_INFO messages sent when a player requests
+// nearby worlds (e.g., opening the map or entering bird view).
+
+syntax = "proto3";
+package nexus.protocol;
+
+message WorldInfo {
+  // World identity
+  uint64 world_id = 1;
+  string name = 2;
+  string slug = 3;
+  string description = 4;
+
+  // World type and mode
+  uint32 world_type = 5;    // 0=sandbox, 1=survival, 2=pvp, 3=story, 4=learning, 5=shop
+  uint32 game_mode = 6;     // 0=peaceful, 1=survival, 2=pvp_enabled, 3=creative
+
+  // Live status
+  uint32 player_count = 7;
+  uint32 object_count = 8;
+
+  // Constellation rendering data
+  double constellation_pos_x = 9;
+  double constellation_pos_y = 10;
+  double constellation_pos_z = 11;
+  float constellation_radius = 12;
+  uint32 constellation_color = 13;    // RGBA packed
+  bool atmosphere_halo = 14;
+
+  // Graph relationship to the requesting world
+  float graph_distance = 15;          // cumulative edge weight from current world
+  uint32 edge_type = 16;              // how this world connects: 0=PORTAL, 1=ADJACENT, 2=CHILD
+}
