@@ -178,9 +178,11 @@ export class PlaneVehicle implements VehicleController {
       const ey = ny * effectiveMag
 
       // Combined axis: mouse direction → one rotation axis in local space
-      // Roll: POSITIVE ex → positive Z → bank right (mouse right = bank right)
+      // No negations — mouse delta signs already carry correct direction:
+      //   ey negative (mouse up) → negative X rotation → pitch UP
+      //   ex positive (mouse right) → positive Z rotation → bank RIGHT
       const axis = new THREE.Vector3(
-        -ey * PITCH_SPEED,
+        ey * PITCH_SPEED,
         0,
         ex * ROLL_SPEED
       ).normalize()
