@@ -32,6 +32,27 @@ const defaults = {
   cameraLerpPos: 0.04,
   cameraLerpLook: 0.08,
   cameraTilt: 0.7,
+  planeScale: 3.4,
+}
+
+const SETTINGS_KEY = 'nexusPlaneSettings'
+
+function loadPersistedSettings(): Record<string, number> {
+  const settings = { ...defaults }
+  try {
+    const saved = localStorage.getItem(SETTINGS_KEY)
+    if (saved) {
+      const obj = JSON.parse(saved)
+      for (const k of Object.keys(defaults)) {
+        if (obj[k] !== undefined) (settings as any)[k] = obj[k]
+      }
+    }
+  } catch { /* ignore */ }
+  return settings
+}
+
+function persistSettings(settings: Record<string, number>): void {
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings))
 }
 
 // ============================================================================
@@ -150,6 +171,7 @@ function createSettingsEl(settings: Record<string, number>): HTMLDivElement {
     { key: 'speedDamping', label: 'Speed Damp', min: 0.005, max: 0.1, step: 0.005 },
     { key: 'cameraLerpPos', label: 'Cam Follow', min: 0.01, max: 0.2, step: 0.005 },
     { key: 'cameraTilt', label: 'Cam Tilt', min: 0, max: 1.0, step: 0.05 },
+    { key: 'planeScale', label: 'Plane Size', min: 0.5, max: 10.0, step: 0.1 },
   ]
 
   const title = document.createElement('div')
@@ -181,6 +203,7 @@ function createSettingsEl(settings: Record<string, number>): HTMLDivElement {
       const v = parseFloat(slider.value)
       settings[s.key] = v
       val.textContent = v.toFixed(4)
+      persistSettings(settings)
     })
 
     row.appendChild(label)
@@ -240,8 +263,8 @@ export class PlaneVehicle implements VehicleController {
   private stickX = 0
   private stickY = 0
 
-  // Tunable settings (mutable — settings UI writes directly to this)
-  public settings: Record<string, number> = { ...defaults }
+  // Tunable settings (mutable — settings UI writes directly to this, persisted to localStorage)
+  public settings: Record<string, number> = loadPersistedSettings()
 
   // DOM elements
   private reticleEl: HTMLDivElement | null = null
@@ -492,6 +515,9 @@ export class PlaneVehicle implements VehicleController {
     }
 
     // === Apply to model ===
+    if (this.glbLoaded && this.planeGLB) {
+      this.planeGLB.scale.setScalar(s.planeScale)
+    }
     this.planeMesh!.position.copy(this.position)
     this.planeMesh!.quaternion.copy(this.orientation)
     if (this.glbLoaded) {
