@@ -436,7 +436,7 @@ export class PlaneVehicle implements VehicleController {
         const rudderQ = new THREE.Quaternion().setFromAxisAngle(
           new THREE.Vector3(0, 1, 0), yawDir * 0.012
         )
-        this.orientation.premultiply(rudderQ)
+        this.orientation.multiply(rudderQ)
       }
 
       // === Bank-to-turn ===
