@@ -30,6 +30,7 @@ import { useFrame, useThree } from '@react-three/fiber'
 import { PointerLockControls } from '@react-three/drei'
 import * as THREE from 'three'
 import { sendMoveAction } from '../network/useNetworkState'
+import { isAnyVehicleActive } from '../vehicles/VehicleSystem'
 
 // ============================================================================
 // Constants
@@ -245,6 +246,9 @@ export function PlayerController() {
   // --- Movement loop (runs every frame) ---
   useFrame((_, delta) => {
     if (!_pointerLocked) return
+
+    // Yield to any active vehicle (plane, submarine, car, drone, etc.)
+    if (isAnyVehicleActive()) return
 
     const dt = Math.min(delta, MAX_DELTA)
 
