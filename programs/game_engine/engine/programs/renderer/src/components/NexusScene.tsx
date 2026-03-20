@@ -23,6 +23,7 @@ import { Terrain } from './Terrain'
 import { EntityField } from './EntityField'
 import { FrameMetrics } from './FrameMetrics'
 import { Constellation } from './Constellation'
+import { WorldObjects } from './WorldObjects'
 import { useWorldState } from '../hooks/useWorldState'
 
 // Vehicle system
@@ -87,6 +88,9 @@ export function NexusScene() {
 
       {/* World terrain */}
       <Terrain />
+
+      {/* World objects (trees, props) */}
+      <WorldObjects />
 
       {/* Entities (all players) */}
       <EntityField snapshotRef={snapshotRef} />

@@ -17,6 +17,7 @@
  * Source: 3dGraphUniverse/src/controls.js lines 314-486
  */
 import * as THREE from 'three'
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import type { VehicleController } from './VehicleSystem'
 import { sendMoveAction } from '../network/useNetworkState'
 
@@ -78,6 +79,9 @@ export class PlaneVehicle implements VehicleController {
   private orientation = new THREE.Quaternion()
   private position = new THREE.Vector3()
   private planeMesh: THREE.Group | null = null
+  private planeGLB: THREE.Group | null = null
+  private glbLoaded = false
+  private modelRotationOffset = new THREE.Quaternion(0, 1, 0, 0) // 180° Y rotation
   private keys: Record<string, boolean> = {}
 
   // Virtual stick state (from 3dGraphUniverse)
@@ -244,7 +248,11 @@ export class PlaneVehicle implements VehicleController {
 
     // === Apply to model (controls.js lines 448-450) ===
     this.planeMesh.position.copy(this.position)
+    // Apply model rotation offset so GLB aligns with flight direction
     this.planeMesh.quaternion.copy(this.orientation)
+    if (this.glbLoaded) {
+      this.planeMesh.quaternion.multiply(this.modelRotationOffset)
+    }
 
     // === Camera (controls.js lines 452-471) ===
     const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(this.orientation)
@@ -269,6 +277,8 @@ export class PlaneVehicle implements VehicleController {
 
   private createPlaneMesh(): THREE.Group {
     const group = new THREE.Group()
+
+    // Placeholder mesh (shown until GLB loads)
     const bodyMat = new THREE.MeshStandardMaterial({ color: 0x6366f1, metalness: 0.8, roughness: 0.2 })
     const wingMat = new THREE.MeshStandardMaterial({ color: 0x8b5cf6, metalness: 0.7, roughness: 0.3 })
 
@@ -289,6 +299,25 @@ export class PlaneVehicle implements VehicleController {
     group.add(vStab)
 
     group.add(new THREE.PointLight(0x6366f1, 1, 8))
+
+    // Load real plane.glb model (from 3dGraphUniverse)
+    // Replaces placeholder when loaded
+    new GLTFLoader().load('/models/plane.glb', (gltf) => {
+      this.planeGLB = gltf.scene
+      this.planeGLB.scale.setScalar(3.4)
+      this.glbLoaded = true
+
+      // Hide placeholder parts, show GLB
+      group.children.forEach(child => {
+        if (child instanceof THREE.Mesh) child.visible = false
+      })
+      group.add(this.planeGLB)
+
+      console.log('[Plane] GLB model loaded')
+    }, undefined, (err) => {
+      console.warn('[Plane] GLB load failed, using placeholder:', err)
+    })
+
     return group
   }
 }
