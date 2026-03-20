@@ -178,13 +178,11 @@ export class PlaneVehicle implements VehicleController {
       const ey = ny * effectiveMag
 
       // Combined axis: mouse direction → one rotation axis in local space
-      // No negations — mouse delta signs already carry correct direction:
-      //   ey negative (mouse up) → negative X rotation → pitch UP
-      //   ex positive (mouse right) → positive Z rotation → bank RIGHT
+      // Negated to match working 3dGraphUniverse signs exactly
       const axis = new THREE.Vector3(
-        ey * PITCH_SPEED,
+        -ey * PITCH_SPEED,
         0,
-        ex * ROLL_SPEED
+        -ex * ROLL_SPEED
       ).normalize()
 
       const angle = effectiveMag * Math.max(PITCH_SPEED, ROLL_SPEED) * ROTATION_ANGLE_SCALE
@@ -205,8 +203,8 @@ export class PlaneVehicle implements VehicleController {
     // === Bank-to-turn (controls.js lines 393-404) ===
     const planeRight = new THREE.Vector3(1, 0, 0).applyQuaternion(this.orientation)
     const bankAmount = Math.asin(THREE.MathUtils.clamp(-planeRight.y, -1, 1))
-    // NEGATIVE: banked right (positive bankAmount) → negative yaw → turn right
-    const bankYaw = -bankAmount * BANK_TURN_RATE * (this.speed / MAX_SPEED)
+    // Positive: matches working 3dGraphUniverse exactly
+    const bankYaw = bankAmount * BANK_TURN_RATE * (this.speed / MAX_SPEED)
     if (Math.abs(bankYaw) > 0.00001) {
       const yawQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), bankYaw)
       this.orientation.premultiply(yawQ)
