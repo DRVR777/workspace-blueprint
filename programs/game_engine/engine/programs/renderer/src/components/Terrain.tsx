@@ -14,9 +14,9 @@ const GRID_COLOR = 0x5a8c4f // slightly lighter than terrain
 const TERRAIN_COLOR = 0x4a7c3f
 
 export function Terrain() {
-  // Circular island
+  // Circular island — 32 segments (was 64, saves half the verts)
   const circleGeo = useMemo(
-    () => new THREE.CircleGeometry(ISLAND_RADIUS, 64),
+    () => new THREE.CircleGeometry(ISLAND_RADIUS, 32),
     []
   )
 
@@ -63,12 +63,7 @@ export function Terrain() {
         position={[0, 0, 0]}
         receiveShadow
       >
-        <meshStandardMaterial
-          color={TERRAIN_COLOR}
-          roughness={0.9}
-          metalness={0.0}
-          side={THREE.DoubleSide}
-        />
+        <meshLambertMaterial color={TERRAIN_COLOR} side={THREE.DoubleSide} />
       </mesh>
 
       {/* Grid lines */}
@@ -82,13 +77,13 @@ export function Terrain() {
         rotation={[-Math.PI / 2, 0, 0]}
         position={[0, 0, 0]}
       >
-        <meshStandardMaterial color={0x3a6c2f} roughness={0.8} />
+        <meshLambertMaterial color={0x3a6c2f} />
       </mesh>
 
       {/* Underside — dark hemisphere so the island looks solid from below */}
       <mesh position={[0, -0.5, 0]}>
         <sphereGeometry args={[ISLAND_RADIUS, 32, 16, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2]} />
-        <meshStandardMaterial color={0x2a1a0a} roughness={1.0} side={THREE.BackSide} />
+        <meshLambertMaterial color={0x2a1a0a} side={THREE.BackSide} />
       </mesh>
     </group>
   )

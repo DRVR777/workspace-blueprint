@@ -133,41 +133,20 @@ function createIslandMesh(node: ConstellationNode): THREE.Group {
 
   const r = node.radius
 
-  // Top surface — flat circle (terrain)
-  const topGeo = new THREE.CircleGeometry(r, 32)
-  const topMat = new THREE.MeshStandardMaterial({
-    color: node.color,
-    roughness: 0.85,
-    metalness: 0.0,
-  })
+  // Top surface — flat circle (terrain) — 16 segments (was 32)
+  const topGeo = new THREE.CircleGeometry(r, 16)
+  const topMat = new THREE.MeshLambertMaterial({ color: node.color }) // Lambert cheaper than Standard
   const top = new THREE.Mesh(topGeo, topMat)
   top.rotation.x = -Math.PI / 2
-  top.position.y = 0
   group.add(top)
 
-  // Bottom — hemisphere (rock underside)
-  const bottomGeo = new THREE.SphereGeometry(r, 32, 16, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2)
-  const bottomMat = new THREE.MeshStandardMaterial({
-    color: 0x3a2a1a,
-    roughness: 1.0,
-    metalness: 0.0,
-    side: THREE.BackSide,
-  })
-  const bottom = new THREE.Mesh(bottomGeo, bottomMat)
-  group.add(bottom)
+  // Bottom — hemisphere (rock underside) — 12x6 segments (was 32x16)
+  const bottomGeo = new THREE.SphereGeometry(r, 12, 6, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2)
+  const bottomMat = new THREE.MeshLambertMaterial({ color: 0x3a2a1a, side: THREE.BackSide })
+  group.add(new THREE.Mesh(bottomGeo, bottomMat))
 
-  // Atmosphere glow (if enabled)
+  // Atmosphere glow — only a point light, no glow sphere (saves 1 draw call per island)
   if (node.hasAtmosphere) {
-    const glowGeo = new THREE.SphereGeometry(r * 1.15, 16, 8)
-    const glowMat = new THREE.MeshBasicMaterial({
-      color: node.color,
-      transparent: true,
-      opacity: 0.08,
-      side: THREE.BackSide,
-    })
-    group.add(new THREE.Mesh(glowGeo, glowMat))
-
-    // Point light for illumination
     const light = new THREE.PointLight(node.color, 0.5, r * 4)
     light.position.y = r * 0.5
     group.add(light)
@@ -178,13 +157,12 @@ function createIslandMesh(node: ConstellationNode): THREE.Group {
 
 function createHighway(from: THREE.Vector3, to: THREE.Vector3): THREE.Mesh {
   const curve = new THREE.LineCurve3(from, to)
-  const tubeGeo = new THREE.TubeGeometry(curve, 32, 1.5, 8, false)
-  const tubeMat = new THREE.MeshStandardMaterial({
+  // Reduced segments: 8 along path × 4 radial (was 32×8 = 256 faces → now 32 faces)
+  const tubeGeo = new THREE.TubeGeometry(curve, 8, 1.5, 4, false)
+  const tubeMat = new THREE.MeshLambertMaterial({
     color: 0xffaa44,
     emissive: 0xff8800,
     emissiveIntensity: 0.3,
-    roughness: 0.4,
-    metalness: 0.6,
     transparent: true,
     opacity: 0.7,
   })
