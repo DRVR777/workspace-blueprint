@@ -259,20 +259,17 @@ export class PlaneVehicle implements VehicleController {
         const angle = effectiveMag * Math.max(this.pitchSpeed, this.rollSpeed) * 0.25
         this.planeOrientation.multiply(new THREE.Quaternion().setFromAxisAngle(axis, angle))
       } else {
-        // Auto-level bank
+        // Auto-level roll only — pitch and yaw are untouched
+        const planeUp = new THREE.Vector3(0, 1, 0).applyQuaternion(this.planeOrientation)
         const planeRight = new THREE.Vector3(1, 0, 0).applyQuaternion(this.planeOrientation)
+        // bankAngle: positive = right wing down, negative = left wing down
+        // if upside down (planeUp.y < 0), roll correction needs to go the other way
         const bankAngle = Math.asin(THREE.MathUtils.clamp(-planeRight.y, -1, 1))
+        const upsideDown = planeUp.y < 0
+        const correction = upsideDown ? Math.sign(bankAngle) * 0.02 : -bankAngle * 0.02
         if (Math.abs(bankAngle) > 0.01) {
           this.planeOrientation.multiply(
-            new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1), -bankAngle * 0.02)
-          )
-        }
-        // Auto-level pitch
-        const noseDir = new THREE.Vector3(0, 0, -1).applyQuaternion(this.planeOrientation)
-        const pitchAngle = Math.asin(THREE.MathUtils.clamp(noseDir.y, -1, 1))
-        if (Math.abs(pitchAngle) > 0.01) {
-          this.planeOrientation.multiply(
-            new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0), pitchAngle * 0.015)
+            new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), correction)
           )
         }
       }
