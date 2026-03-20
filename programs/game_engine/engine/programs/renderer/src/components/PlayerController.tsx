@@ -503,6 +503,20 @@ export function PlayerController() {
     }
   })
 
+  // Disable PointerLockControls when a vehicle is active —
+  // otherwise it fights with the vehicle's camera control.
+  // We disconnect/reconnect the controls manually each frame.
+  useFrame(() => {
+    const controls = controlsRef.current as any
+    if (!controls) return
+    if (isAnyVehicleActive()) {
+      if (controls.isLocked) controls.unlock()
+      controls.enabled = false
+    } else {
+      controls.enabled = true
+    }
+  })
+
   return (
     <PointerLockControls
       ref={controlsRef}
