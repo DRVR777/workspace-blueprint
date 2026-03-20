@@ -78,9 +78,12 @@ function _connectInternal(): void {
   _socket.binaryType = 'arraybuffer'
 
   _socket.onopen = () => {
-    console.log('[NEXUS Net] Connected')
+    console.log(`[NEXUS Net] Connected to ${_serverUrl}`)
+    console.log(`[NEXUS Net] WebSocket readyState: ${_socket?.readyState}`)
     _connected = true
     _reconnectAttempts = 0
+    _totalBytesReceived = 0
+    _totalBytesSent = 0
     _sendHandshake()
   }
 
@@ -90,8 +93,9 @@ function _connectInternal(): void {
     }
   }
 
-  _socket.onclose = () => {
-    console.log('[NEXUS Net] Disconnected')
+  _socket.onclose = (event) => {
+    console.log(`[NEXUS Net] Disconnected — code: ${event.code}, reason: ${event.reason || 'none'}, clean: ${event.wasClean}`)
+    console.log(`[NEXUS Net] Session stats: ${(_totalBytesReceived / 1024).toFixed(1)}KB received, ${(_totalBytesSent / 1024).toFixed(1)}KB sent, ${_entities.size} entities tracked`)
     _connected = false
     _socket = null
     _attemptReconnect()
@@ -159,6 +163,7 @@ function _sendBinary(type: number, payload: ArrayBuffer): void {
   message.set(new Uint8Array(header), 0)
   message.set(new Uint8Array(payload), HEADER_SIZE)
   _socket.send(message.buffer)
+  _totalBytesSent += message.byteLength
 }
 
 // ============================================================================
@@ -207,11 +212,18 @@ export function sendMoveAction(dirX: number, dirY: number, dirZ: number): void {
 // Message Handler
 // ============================================================================
 
+// Rate-limited logging (don't spam console with position updates)
+let _lastPositionLogTime = 0
+let _positionUpdateCount = 0
+let _totalBytesReceived = 0
+let _totalBytesSent = 0
+
 function _handleBinaryMessage(data: ArrayBuffer): void {
   if (data.byteLength < HEADER_SIZE) return
 
   const header = _decodeHeader(data)
   const payload = data.slice(HEADER_SIZE)
+  _totalBytesReceived += data.byteLength
 
   switch (header.type) {
     case MSG_HANDSHAKE_RESPONSE:
@@ -220,6 +232,19 @@ function _handleBinaryMessage(data: ArrayBuffer): void {
 
     case MSG_ENTITY_POSITION_UPDATE:
       _handlePositionUpdate(payload)
+      _positionUpdateCount++
+      // Log position updates every 5 seconds (not every frame)
+      if (performance.now() - _lastPositionLogTime > 5000) {
+        const entityCount = Math.floor(payload.byteLength / 24)
+        console.log(
+          `[NEXUS Net] Position updates: ${_positionUpdateCount} in last 5s, ` +
+          `${entityCount} entities, ` +
+          `${(_totalBytesReceived / 1024).toFixed(1)}KB received total, ` +
+          `${(_totalBytesSent / 1024).toFixed(1)}KB sent total`
+        )
+        _positionUpdateCount = 0
+        _lastPositionLogTime = performance.now()
+      }
       break
 
     case MSG_TICK_SYNC:
@@ -235,7 +260,7 @@ function _handleBinaryMessage(data: ArrayBuffer): void {
       break
 
     default:
-      // Unknown message type — ignore (forward compatibility)
+      console.log(`[NEXUS Net] Unknown message type: 0x${header.type.toString(16).padStart(4, '0')} (${data.byteLength} bytes)`)
       break
   }
 }
@@ -317,4 +342,32 @@ export function snapshotWorldState(): WorldSnapshot {
     nearby_entities: Array.from(_entities.values()),
     tick: _tick,
   }
+}
+
+// ============================================================================
+// Debug API — call from browser console: nexusDebug()
+// ============================================================================
+
+/** Print full network debug state. Call from console: nexusDebug() */
+export function debugNetworkState(): void {
+  console.log('=== NEXUS Network Debug ===')
+  console.log(`Server: ${_serverUrl}`)
+  console.log(`Connected: ${_connected}`)
+  console.log(`Player ID: ${_playerId}`)
+  console.log(`Server tick: ${_tick}`)
+  console.log(`Entities tracked: ${_entities.size}`)
+  console.log(`Reconnect attempts: ${_reconnectAttempts}`)
+  console.log(`Bytes received: ${(_totalBytesReceived / 1024).toFixed(1)}KB`)
+  console.log(`Bytes sent: ${(_totalBytesSent / 1024).toFixed(1)}KB`)
+  console.log(`WebSocket state: ${_socket ? ['CONNECTING','OPEN','CLOSING','CLOSED'][_socket.readyState] : 'null'}`)
+  console.log('Entities:')
+  _entities.forEach((e, id) => {
+    console.log(`  ${id}: pos(${e.x.toFixed(2)}, ${e.y.toFixed(2)}, ${e.z.toFixed(2)}) yaw=${e.yaw.toFixed(2)}`)
+  })
+  console.log('===========================')
+}
+
+// Expose to window for console access
+if (typeof window !== 'undefined') {
+  (window as any).nexusDebug = debugNetworkState
 }
