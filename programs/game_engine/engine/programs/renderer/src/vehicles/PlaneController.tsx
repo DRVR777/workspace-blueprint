@@ -17,6 +17,8 @@ export class PlaneVehicle implements VehicleController {
 
   private active = false
   private planeMode = false
+  private _camera: THREE.PerspectiveCamera | null = null
+  private planeEuler = new THREE.Euler(0, 0, 0, 'YXZ')
 
   // Fly mode state
   private euler = new THREE.Euler(0, 0, 0, 'YXZ')
@@ -165,6 +167,7 @@ export class PlaneVehicle implements VehicleController {
 
   update(camera: THREE.PerspectiveCamera, scene: THREE.Scene, _delta: number): void {
     if (!this.active) return
+    this._camera = camera
     this._ensureMeshes(scene)
     if (this.planeMode) this._updatePlaneMode(camera)
     else this._updateFlyMode(camera)
@@ -359,9 +362,12 @@ export class PlaneVehicle implements VehicleController {
   private _togglePlaneMode(): void {
     this.planeMode = !this.planeMode
     const plane = this._getActivePlane()
+    const cam = this._camera
 
     if (this.planeMode) {
-      this.planePosition.copy((this as any)._lastCameraPos ?? new THREE.Vector3(0, 50, 0))
+      // Exact source: copy camera position, extract yaw only
+      if (cam) this.planePosition.copy(cam.position)
+      this.planeEuler.set(0, this.euler.y, 0, 'YXZ')
       this.planeOrientation.setFromEuler(new THREE.Euler(0, this.euler.y, 0, 'YXZ'))
       this.throttle = 0.5
       this.planeSpeed = this.minSpeed + 0.5 * (this.maxSpeed - this.minSpeed)
@@ -370,6 +376,12 @@ export class PlaneVehicle implements VehicleController {
       if (plane) { plane.visible = true; plane.position.copy(this.planePosition) }
       if (this.reticleEl) this.reticleEl.style.display = 'block'
     } else {
+      // Exact source: restore camera to plane position + yaw
+      if (cam) {
+        cam.position.copy(this.planePosition)
+        this.euler.copy(this.planeEuler)
+        cam.quaternion.setFromEuler(this.euler)
+      }
       if (plane) plane.visible = false
       this.calibrating = false
       if (this.calibrationUI) this.calibrationUI.style.display = 'none'
