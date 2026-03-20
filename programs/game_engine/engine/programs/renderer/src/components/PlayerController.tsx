@@ -503,18 +503,13 @@ export function PlayerController() {
     }
   })
 
-  // Disable PointerLockControls when a vehicle is active —
+  // Disable PointerLockControls camera rotation when a vehicle is active —
   // otherwise it fights with the vehicle's camera control.
-  // We disconnect/reconnect the controls manually each frame.
+  // Don't unlock pointer — the plane needs pointer lock for mouse input.
   useFrame(() => {
     const controls = controlsRef.current as any
     if (!controls) return
-    if (isAnyVehicleActive()) {
-      if (controls.isLocked) controls.unlock()
-      controls.enabled = false
-    } else {
-      controls.enabled = true
-    }
+    controls.enabled = !isAnyVehicleActive()
   })
 
   return (
