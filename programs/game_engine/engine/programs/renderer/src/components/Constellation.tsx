@@ -14,8 +14,8 @@
  *
  * Phase 0: static test data. Phase 1: real world-graph data from server.
  */
-import { useRef, useMemo } from 'react'
-import { useFrame } from '@react-three/fiber'
+import { useRef, useMemo, useEffect } from 'react'
+import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 
 // ============================================================================
@@ -64,40 +64,50 @@ const TEST_EDGES: ConstellationEdge[] = [
 const _dummy = new THREE.Object3D()
 
 export function Constellation() {
-  const nodes = TEST_NODES // Phase 1: replace with real data from useWorldState
+  const nodes = TEST_NODES
   const edges = TEST_EDGES
+  const { scene } = useThree()
 
-  // Instanced spheres for world nodes (from 3dGraphUniverse/src/nodes.js)
   const meshRef = useRef<THREE.InstancedMesh>(null)
+  const edgeLinesRef = useRef<THREE.Group>(new THREE.Group())
 
-  const geometry = useMemo(
-    () => new THREE.SphereGeometry(1, 32, 32),
-    []
-  )
+  const geometry = useMemo(() => new THREE.SphereGeometry(1, 32, 32), [])
+  const material = useMemo(() => new THREE.MeshStandardMaterial({
+    roughness: 0.3,
+    metalness: 0.7,
+    emissiveIntensity: 0.5,
+  }), [])
 
-  const material = useMemo(
-    () => new THREE.MeshStandardMaterial({
-      roughness: 0.3,
-      metalness: 0.7,
-      emissiveIntensity: 0.5,
-    }),
-    []
-  )
+  // Add edge lines imperatively (avoids R3F <line> vs SVG conflict)
+  useEffect(() => {
+    const group = edgeLinesRef.current
+    scene.add(group)
 
-  // Edge lines
-  const edgeGeometries = useMemo(() => {
-    return edges.map(edge => {
+    for (const edge of edges) {
       const from = nodes.find(n => n.worldId === edge.fromWorldId)
       const to = nodes.find(n => n.worldId === edge.toWorldId)
-      if (!from || !to) return null
+      if (!from || !to) continue
 
-      const points = [from.position, to.position]
-      const geo = new THREE.BufferGeometry().setFromPoints(points)
-      return { geo, edgeType: edge.edgeType }
-    }).filter(Boolean) as { geo: THREE.BufferGeometry; edgeType: number }[]
-  }, [nodes, edges])
+      const geo = new THREE.BufferGeometry().setFromPoints([from.position, to.position])
+      const mat = new THREE.LineBasicMaterial({
+        color: edge.edgeType === 2 ? 0xffaa44 : 0xffffff,
+        opacity: edge.edgeType === 2 ? 0.4 : 0.15,
+        transparent: true,
+      })
+      group.add(new THREE.Line(geo, mat))
+    }
 
-  // Update instance matrices each frame
+    return () => {
+      scene.remove(group)
+      group.traverse(child => {
+        if (child instanceof THREE.Line) {
+          child.geometry.dispose()
+          ;(child.material as THREE.Material).dispose()
+        }
+      })
+    }
+  }, [scene, nodes, edges])
+
   useFrame(() => {
     const mesh = meshRef.current
     if (!mesh) return
@@ -108,10 +118,7 @@ export function Constellation() {
       _dummy.scale.setScalar(node.radius)
       _dummy.updateMatrix()
       mesh.setMatrixAt(i, _dummy.matrix)
-
-      // Set color per instance
-      const color = new THREE.Color(node.color)
-      mesh.setColorAt(i, color)
+      mesh.setColorAt(i, new THREE.Color(node.color))
     }
 
     mesh.count = nodes.length
@@ -121,25 +128,12 @@ export function Constellation() {
 
   return (
     <group>
-      {/* World node spheres */}
       <instancedMesh
         ref={meshRef}
         args={[geometry, material, 64]}
         frustumCulled={false}
       />
 
-      {/* Edge lines (from 3dGraphUniverse/src/nodes.js edge rendering) */}
-      {edgeGeometries.map((edge, i) => (
-        <line key={i} geometry={edge.geo}>
-          <lineBasicMaterial
-            color={edge.edgeType === 2 ? 0xffaa44 : 0xffffff}
-            opacity={edge.edgeType === 2 ? 0.4 : 0.15}
-            transparent
-          />
-        </line>
-      ))}
-
-      {/* Point light at each active world (glow effect) */}
       {nodes.filter(n => n.hasAtmosphere).map(node => (
         <pointLight
           key={node.worldId}

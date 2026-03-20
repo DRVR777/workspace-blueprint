@@ -58,9 +58,6 @@ let _serverUrl = DEFAULT_SERVER
 // Entity map: id → latest state (updated from server, read each frame)
 const _entities: Map<number, EntityState> = new Map()
 
-// Pending actions to send (drained each frame)
-const _pendingActions: ArrayBuffer[] = []
-
 // ============================================================================
 // Connection
 // ============================================================================

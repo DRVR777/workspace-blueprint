@@ -51,17 +51,6 @@ export function EntityField({ snapshotRef }: Props) {
     []
   )
 
-  // Per-entity color array — set once, player entity gets highlight color
-  const colorArray = useMemo(() => {
-    const arr = new Float32Array(MAX_ENTITIES * 3)
-    for (let i = 0; i < MAX_ENTITIES; i++) {
-      arr[i * 3 + 0] = ENTITY_COLOR.r
-      arr[i * 3 + 1] = ENTITY_COLOR.g
-      arr[i * 3 + 2] = ENTITY_COLOR.b
-    }
-    return arr
-  }, [])
-
   useFrame(() => {
     const mesh = meshRef.current
     if (!mesh) return

@@ -17,7 +17,6 @@ import {
   disconnect,
   stepWorldState as networkStep,
   snapshotWorldState as networkSnapshot,
-  isConnected,
 } from '../network/useNetworkState'
 
 // Stub imports (fallback when no server)
