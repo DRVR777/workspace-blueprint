@@ -182,18 +182,28 @@ function _sendHandshake(): void {
 // ============================================================================
 
 /**
- * Queue a movement action to be sent to the server.
- * direction: normalized Vec3 (x, y, z) — the direction the player wants to move.
- * Called by the character controller each frame the player is moving.
+ * Send a movement action to the server.
+ * Throttled to server tick rate (50Hz / 20ms) — prevents movement speed
+ * from depending on client frame rate.
  */
+const SEND_INTERVAL_MS = 20 // match server tick rate
+let _lastSendTime = 0
+let _pendingDir: [number, number, number] | null = null
+
 export function sendMoveAction(dirX: number, dirY: number, dirZ: number): void {
-  // Payload: 12 bytes (3x float32 LE) — matches simulation validate.rs decode_vec3f32
+  _pendingDir = [dirX, dirY, dirZ]
+
+  const now = performance.now()
+  if (now - _lastSendTime < SEND_INTERVAL_MS) return
+  _lastSendTime = now
+
   const payload = new ArrayBuffer(12)
   const view = new DataView(payload)
-  view.setFloat32(0, dirX, true)
-  view.setFloat32(4, dirY, true)
-  view.setFloat32(8, dirZ, true)
+  view.setFloat32(0, _pendingDir[0], true)
+  view.setFloat32(4, _pendingDir[1], true)
+  view.setFloat32(8, _pendingDir[2], true)
   _sendBinary(MSG_PLAYER_ACTION, payload)
+  _pendingDir = null
 }
 
 // ============================================================================

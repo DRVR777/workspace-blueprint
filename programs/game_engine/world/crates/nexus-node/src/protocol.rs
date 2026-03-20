@@ -121,11 +121,12 @@ pub fn encode_position_updates(bodies: &[PhysicsBody]) -> Vec<u8> {
         payload.extend_from_slice(&(body.position.x as f32).to_le_bytes());
         payload.extend_from_slice(&(body.position.y as f32).to_le_bytes());
         payload.extend_from_slice(&(body.position.z as f32).to_le_bytes());
-        // Compute yaw from orientation (simplified: atan2 of forward vector)
-        let yaw = 2.0 * (body.orientation.y * body.orientation.w
-            + body.orientation.x * body.orientation.z).atan2(
-            1.0 - 2.0 * (body.orientation.y * body.orientation.y
-                + body.orientation.z * body.orientation.z));
+        // Compute yaw from quaternion (standard quaternion → euler Y extraction)
+        let siny_cosp = 2.0 * (body.orientation.w * body.orientation.y
+            + body.orientation.x * body.orientation.z);
+        let cosy_cosp = 1.0 - 2.0 * (body.orientation.y * body.orientation.y
+            + body.orientation.z * body.orientation.z);
+        let yaw = siny_cosp.atan2(cosy_cosp);
         payload.extend_from_slice(&yaw.to_le_bytes());
         payload.extend_from_slice(&0u32.to_le_bytes()); // flags (reserved)
     }
