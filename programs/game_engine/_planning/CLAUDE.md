@@ -8,15 +8,16 @@
 
 | Name | Purpose |
 |------|---------|
-| `adr/` | <!-- one-line purpose → fill in --> |
+| `adr/` | Architecture Decision Records — 8 accepted, 7 open (see adr/README.md) |
+| `roadmap.md` | Phase 0-4 build order with completion gates |
 
 ## Quick Rules For This Directory
 
-<!-- TODO: Add any directory-specific rules agents must follow here. -->
-- Follow patterns in `_core/CONVENTIONS.md`
-- Log every inference to `_meta/gaps/pending.txt`
+- All Phase 0 blocking ADRs are ACCEPTED (ADR-001 through ADR-006, ADR-014, ADR-015). Phase 0 is NOT blocked.
+- Open ADRs (007-013) block Phase 1-4 — don't resolve them until needed
+- ADR format: Context → Options → Decision → Consequences
 
 ## Cross-References
 
-<!-- TODO: List dependencies on other parts of the workspace. -->
-- (none defined yet)
+- `../shared/contracts/` — contracts implement ADR decisions
+- `../shared/schemas/` — schemas follow ADR-006 (Flatbuffers + Protobuf)

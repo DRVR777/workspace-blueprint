@@ -20,8 +20,9 @@ programs — program-submodule.
 
 ## Contents
 
-  - `node-manager` (directory)
-  - `spatial` (directory)
+  - `node-manager` (directory) — tick loop, WebSocket server, client management
+  - `spatial` (directory) — in-memory octree spatial index
+  - `simulation` (directory) — pure-function physics tick pipeline (Rapier)
 
 ## Needs
 

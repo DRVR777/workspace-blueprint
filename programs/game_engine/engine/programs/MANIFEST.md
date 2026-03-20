@@ -20,8 +20,9 @@ programs — program-submodule.
 
 ## Contents
 
-  - `local-simulation` (directory)
-  - `renderer` (directory)
+  - `renderer` (directory) — R3F frame loop, terrain, entity instancing, camera
+  - `local-simulation` (directory) — client-side prediction and server reconciliation
+  - `visibility` (directory) — frustum culling, distance gating, LOD delegation
 
 ## Needs
 

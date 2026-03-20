@@ -8,16 +8,18 @@
 
 | Name | Purpose |
 |------|---------|
-| `contracts/` | <!-- one-line purpose → fill in --> |
-| `schemas/` | <!-- one-line purpose → fill in --> |
+| `contracts/` | 8 subsystem interface specs (world-state, simulation, world-graph, node-registry, lod, session, ticker-log, asset-store) |
+| `schemas/` | 18+ wire format definitions: Flatbuffers (.fbs) for game state, Protobuf (.proto) for control messages |
 
 ## Quick Rules For This Directory
 
-<!-- TODO: Add any directory-specific rules agents must follow here. -->
-- Follow patterns in `_core/CONVENTIONS.md`
-- Log every inference to `_meta/gaps/pending.txt`
+- Contracts are the source of truth for subsystem interfaces — if code and contract disagree, fix the code
+- Schemas are the source of truth for wire formats — if code and schema disagree, fix the code
+- Use Flatbuffers for high-frequency game state (positions, objects). Use Protobuf for rare control messages (handshake, admin)
+- Breaking schema changes require a NEW message type, not a version bump
 
 ## Cross-References
 
-<!-- TODO: List dependencies on other parts of the workspace. -->
-- (none defined yet)
+- `../world/` — server implements these contracts
+- `../engine/` — client consumes these contracts
+- `schemas/README.md` — full schema index with hex codes and directions

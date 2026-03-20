@@ -8,15 +8,21 @@
 
 | Name | Purpose |
 |------|---------|
-| `programs/` | <!-- one-line purpose → fill in --> |
+| `programs/` | Client sub-programs: renderer, local-simulation, visibility |
+
+**This is the CLIENT side.** Language: TypeScript. Framework: React Three Fiber. Bundler: Vite.
 
 ## Quick Rules For This Directory
 
-<!-- TODO: Add any directory-specific rules agents must follow here. -->
-- Follow patterns in `_core/CONVENTIONS.md`
-- Log every inference to `_meta/gaps/pending.txt`
+- `cd programs/renderer && npm install && npm run dev` to start the client
+- Client connects to the Rust server via WebSocket (`ws://SERVER_IP:9001`)
+- Visibility system is a pure TypeScript module — no React hooks, called inside `useFrame()`
+- Drei is for dev tooling only — never in the production render path
 
 ## Cross-References
 
-<!-- TODO: List dependencies on other parts of the workspace. -->
-- (none defined yet)
+- `../shared/contracts/` — interfaces the client consumes
+- `../shared/schemas/` — wire formats for client↔server messages
+- `../world/` — the server this client connects to
+- `../../ELEV8-source/components/scene/` — reference: character controller, portals, interaction
+- `../../personalWebsite/src/` — reference: camera controls, asset loading

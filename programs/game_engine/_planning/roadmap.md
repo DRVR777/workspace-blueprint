@@ -1,42 +1,36 @@
 # game_engine — Build Roadmap
 
-*Status: specced → ready to build. All spec reviews passed 2026-03-14. Begin Phase 0 implementation with node-manager.*
+*Status: BUILDING. All specs complete. Rust server compiles (19 tests pass). R3F client renders at 60+ FPS. Wiring WebSocket next.*
 
 ---
 
-## Gate: Before Any Phase Begins
+## Gate: Before Any Phase Begins — ALL PASSED
 
-All of these must be true before Phase 0 starts:
-
-- [x] ADR-001 resolved: sector size = 1,000 units
-- [x] ADR-002 resolved: R-tree (DB) + octree (memory)
-- [x] ADR-003 resolved: semi-implicit Euler
-- [x] ADR-004 resolved: proven collision library behind contract
-- [x] ADR-005 resolved: BC7 + ASTC dual format
-- [x] ADR-006 resolved: Flatbuffers + Protobuf
-- [x] ADR-014 resolved: domain-warped fractal Simplex noise
-- [x] shared/schemas/ — all 16 schema files written: 10 .fbs + 6 .proto (GAP-011 closed 2026-03-14)
-- [x] Shared contracts finalized: world-state ✅ simulation ✅ node-registry ✅ lod-system ✅ player-session ✅ ticker-log ✅ (GAP-002 closed 2026-03-14)
-- [x] Spec review passes for `world/programs/spatial/`  ← PASS 2026-03-14
-- [x] Spec review passes for `world/programs/node-manager/`  ← PASS 2026-03-14
-- [x] Spec review passes for `engine/programs/renderer/`  ← PASS 2026-03-14
-- [x] Spec review passes for `engine/programs/local-simulation/`  ← PASS 2026-03-14
+- [x] ADR-001 through ADR-006, ADR-014, ADR-015 — all accepted
+- [x] shared/schemas/ — 18+ schema files written (Flatbuffers + Protobuf)
+- [x] 8 shared contracts finalized (world-state, simulation, world-graph, node-registry, lod, session, ticker-log, asset-store)
+- [x] All Phase 0 sub-programs specced (simulation, visibility added 2026-03-19)
+- [x] Tech stack locked: TypeScript/R3F client, Rust server, Rapier physics (ADR-015)
 
 ---
 
 ## Phase 0: Foundation
-**Goal**: One node, one player, empty world, 50 ticks/sec, 60 FPS client
+**Goal**: One node, one player, empty world, 50 ticks/sec, 60+ FPS client
+
+**Tech note**: Server is Rust (world/crates/). Client is TypeScript/R3F (engine/programs/renderer/).
+Reference code: ELEV8-source (R3F), personalWebsite (raw Three.js).
 
 Build order within Phase 0:
-1. `world/programs/node-manager/` — node lifecycle, tick loop skeleton
-2. `world/programs/simulation/` — physics integration (dynamic bodies only)
-3. `world/programs/spatial/` — in-memory octree
-4. `engine/programs/renderer/` — renders a flat plane at 60 FPS
-5. `engine/programs/local-simulation/` — client-side prediction (position only)
-6. Network protocol — handshake, position update, simple action (Part VIII)
-7. Integration: client connects to node, position syncs, frame renders
+1. ~~`world/crates/nexus-core`~~ — ✅ DONE: Vec3, Quat, AABB, PhysicsBody, config, constants
+2. ~~`world/crates/nexus-spatial`~~ — ✅ DONE: octree insert/remove/move/query (6 tests pass)
+3. ~~`world/crates/nexus-simulation`~~ — ✅ DONE: 5-stage run_tick with Rapier (compiles)
+4. ~~`world/crates/nexus-node`~~ — ✅ DONE: tokio entry point, 50Hz tick loop, WebSocket echo server
+5. ~~`engine/programs/renderer/`~~ — ✅ DONE: R3F renders terrain + 50 instanced entities at 60+ FPS
+6. **WebSocket bridge** — ← NEXT: connect R3F client to Rust server, HANDSHAKE protocol
+7. Character controller — port from ELEV8-source AvatarController.tsx
+8. Integration: client connects to node, position syncs, frame renders
 
-**Phase 0 done when**: One player, moving, server-authoritative, client-predicted, 50 ticks server, 60 FPS client.
+**Phase 0 done when**: One player, moving, server-authoritative, client-predicted, 50 ticks server, 60+ FPS client.
 
 ---
 

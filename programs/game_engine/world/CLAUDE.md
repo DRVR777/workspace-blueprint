@@ -8,15 +8,22 @@
 
 | Name | Purpose |
 |------|---------|
-| `programs/` | <!-- one-line purpose → fill in --> |
+| `programs/` | Server sub-programs: node-manager, spatial, simulation |
+| `crates/` | Rust workspace: nexus-core, nexus-spatial, nexus-simulation, nexus-node |
+| `Cargo.toml` | Rust workspace root — `cargo build` from here |
+| `.cargo/config.toml` | Build config (target dir, linker settings) |
+
+**This is the SERVER side.** Language: Rust. Runtime: Tokio async. Physics: Rapier 3D.
 
 ## Quick Rules For This Directory
 
-<!-- TODO: Add any directory-specific rules agents must follow here. -->
-- Follow patterns in `_core/CONVENTIONS.md`
-- Log every inference to `_meta/gaps/pending.txt`
+- `cargo build` and `cargo test` from this directory
+- Server binary: `crates/nexus-node/src/main.rs` (entry point)
+- Specs are in `programs/` (MANIFEST.md). Implementation is in `crates/` (Rust source).
+- Every magic number comes from `crates/nexus-core/src/constants.rs`
 
 ## Cross-References
 
-<!-- TODO: List dependencies on other parts of the workspace. -->
-- (none defined yet)
+- `../shared/contracts/` — interfaces this server implements
+- `../shared/schemas/` — wire formats for client↔server messages
+- `../engine/` — the client that connects to this server

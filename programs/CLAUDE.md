@@ -8,16 +8,18 @@
 
 | Name | Purpose |
 |------|---------|
-| `_template/` | <!-- one-line purpose → fill in --> |
-| `dreamworld/` | <!-- one-line purpose → fill in --> |
-| `ELEV8/` | <!-- one-line purpose → fill in --> |
-| `game_engine/` | <!-- one-line purpose → fill in --> |
-| `knowledge-graph/` | <!-- one-line purpose → fill in --> |
-| `oracle/` | <!-- one-line purpose → fill in --> |
-| `project-alpha/` | <!-- one-line purpose → fill in --> |
-| `project-beta/` | <!-- one-line purpose → fill in --> |
-| `watcher/` | <!-- one-line purpose → fill in --> |
-| `workspace-builder/` | <!-- one-line purpose → fill in --> |
+| `game_engine/` | NEXUS — spatial computing substrate for Dreamworld (Rust server + R3F client) |
+| `oracle/` | ORACLE — AI-native trading intelligence platform for Polymarket and Solana |
+| `knowledge-graph/` | Cognitive Document System — self-navigating 5D document graph with MCP server |
+| `dreamworld/` | Reference: PRD + implementation plan — vision source for game_engine |
+| `ELEV8/` | Reference: analysis docs + failure post-mortem from hackathon prototype |
+| `ELEV8-source/` | Reference: full R3F source — character controller, portals, interaction system |
+| `personalWebsite/` | Reference: raw Three.js museum — camera controls, asset loading pipeline |
+| `workspace-builder/` | Self-improvement engine — tracks PRD requirements, builds missing pieces |
+| `_template/` | Empty clone source for new projects — never populate directly |
+| `watcher/` | File watcher utility — monitors workspace changes |
+| `project-alpha/` | Example placeholder — replace with real project |
+| `project-beta/` | Example placeholder — replace with real project |
 
 ## Quick Rules For This Directory
 
