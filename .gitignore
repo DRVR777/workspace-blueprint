@@ -49,6 +49,13 @@ _archive/session-histories/
 
 # --- Nested git repos (cloned references) ---
 claude-office-skills-ref/.git/
+programs/ELEV8-source/.git/
+programs/personalWebsite/.git/
+programs/3dGraphUniverse/.git/
+programs/oracle/stockMarket-repo/.git/
+
+# --- Rust build artifacts ---
+**/target/
 
 # --- Intake queue runtime state ---
 _intake/queue/*

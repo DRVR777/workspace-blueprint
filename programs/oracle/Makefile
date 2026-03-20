@@ -63,3 +63,6 @@ operator-dashboard:
 
 help:       ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*##' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*##"}; {printf "  %-22s %s\n", $$1, $$2}'
+
+market-scanner:  ## Scan crypto + stocks for bull/bear patterns
+	cd programs/market-scanner && python -m market_scanner

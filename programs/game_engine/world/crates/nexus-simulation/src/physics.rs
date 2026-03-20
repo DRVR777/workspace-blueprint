@@ -7,6 +7,7 @@
 //! Spec: simulation/MANIFEST.md "Stage 3: Physics Step"
 
 use std::collections::HashMap;
+use std::num::NonZeroUsize;
 
 use rapier3d::prelude::*;
 use nexus_core::math::{Vec3f32, Vec3f64};
@@ -182,22 +183,10 @@ pub fn physics_step(
     // --- 3c. Step Rapier (gravity disabled — we apply our own) ---
 
     let gravity = vector![0.0, 0.0, 0.0]; // Disabled — we handle gravity per-world
-    let integration_parameters = IntegrationParameters {
-        dt: effective_dt,
-        min_ccd_dt: 0.001,
-        erp: 0.8,
-        damping_ratio: 0.25,
-        joint_erp: 1.0,
-        joint_damping_ratio: 1.0,
-        allowed_linear_error: 0.001,
-        max_penetration_correction: 0.2,
-        prediction_distance: 0.002,
-        num_solver_iterations: NonZeroUsize::new(4).unwrap(),
-        num_additional_friction_iterations: 4,
-        num_internal_pgs_iterations: 1,
-        max_ccd_substeps: 1,
-        ..IntegrationParameters::default()
-    };
+    let mut integration_parameters = IntegrationParameters::default();
+    integration_parameters.dt = effective_dt;
+    integration_parameters.min_ccd_dt = 0.001;
+    integration_parameters.max_ccd_substeps = 1;
 
     let mut physics_pipeline = PhysicsPipeline::new();
     let mut island_manager = IslandManager::new();
@@ -284,7 +273,7 @@ pub fn physics_step(
     let mut collision_events = Vec::new();
 
     narrow_phase.contact_pairs().for_each(|pair| {
-        if pair.has_any_active_contact() {
+        if pair.has_any_active_contact {
             let body_a_handle = collider_set.get(pair.collider1)
                 .and_then(|c| c.parent())
                 .and_then(|h| mapping.rapier_to_nexus.get(&h));
