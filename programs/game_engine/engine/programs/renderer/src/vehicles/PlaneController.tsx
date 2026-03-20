@@ -421,14 +421,22 @@ export class PlaneVehicle implements VehicleController {
         // Auto-level pitch — nose returns to world horizon
         const noseDir = new THREE.Vector3(0, 0, -1).applyQuaternion(this.orientation)
         const pitchAngle = Math.asin(THREE.MathUtils.clamp(noseDir.y, -1, 1))
-        if (Math.abs(pitchAngle) > 0.01) {
-          const noseFlatDir = new THREE.Vector3(noseDir.x, 0, noseDir.z).normalize()
-          const worldRight = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), noseFlatDir).normalize()
+        if (Math.abs(pitchAngle) > 0.02) {
+          const correction = THREE.MathUtils.clamp(pitchAngle * 0.02, -0.003, 0.003)
           const pitchLevelQ = new THREE.Quaternion().setFromAxisAngle(
-            worldRight, -pitchAngle * 0.015
+            new THREE.Vector3(1, 0, 0), correction
           )
-          this.orientation.premultiply(pitchLevelQ)
+          this.orientation.multiply(pitchLevelQ)
         }
+      }
+
+      // === A/D direct yaw (rudder — turn without banking) ===
+      if (keys['KeyA'] || keys['KeyD']) {
+        const yawDir = keys['KeyA'] ? 1 : -1
+        const rudderQ = new THREE.Quaternion().setFromAxisAngle(
+          new THREE.Vector3(0, 1, 0), yawDir * 0.012
+        )
+        this.orientation.premultiply(rudderQ)
       }
 
       // === Bank-to-turn ===
