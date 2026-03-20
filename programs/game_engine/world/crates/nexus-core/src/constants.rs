@@ -7,14 +7,14 @@
 // Tick timing
 // =============================================================================
 
-/// Target tick duration in seconds (50 Hz).
-pub const TARGET_TICK_DURATION: f32 = 0.02;
+/// Target tick duration in seconds (100 Hz).
+pub const TARGET_TICK_DURATION: f32 = 0.01;
 
 /// Maximum allowed dt — caps simulation step if a tick takes too long.
 pub const MAX_TICK_DT: f32 = 0.05;
 
 /// Target ticks per second.
-pub const TARGET_TICK_RATE: u32 = 50;
+pub const TARGET_TICK_RATE: u32 = 100;
 
 // =============================================================================
 // Physics defaults (ADR-003)
@@ -85,13 +85,13 @@ pub const MIN_VISIBILITY_RADIUS: f64 = 250.0;
 // =============================================================================
 
 /// Total tick budget in milliseconds.
-pub const TICK_BUDGET_MS: f32 = 20.0;
+pub const TICK_BUDGET_MS: f32 = 10.0;
 
-/// Simulation budget within the tick (node-manager reserves 3ms for I/O).
-pub const SIMULATION_BUDGET_MS: f32 = 17.0;
+/// Simulation budget within the tick (node-manager reserves 2ms for I/O).
+pub const SIMULATION_BUDGET_MS: f32 = 8.0;
 
 /// Tick duration above which load warnings begin.
-pub const HIGH_LOAD_THRESHOLD_MS: f32 = 18.0;
+pub const HIGH_LOAD_THRESHOLD_MS: f32 = 9.0;
 
 /// Number of consecutive overloaded ticks before requesting a domain split.
-pub const LOAD_GRACE_TICKS: u32 = 50;
+pub const LOAD_GRACE_TICKS: u32 = 100;

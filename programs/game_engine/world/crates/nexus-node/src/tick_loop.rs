@@ -1,6 +1,6 @@
 //! The simulation tick loop.
 //!
-//! Runs at TARGET_TICK_DURATION intervals (50Hz / 20ms).
+//! Runs at TARGET_TICK_DURATION intervals (100Hz / 10ms).
 //! Each tick:
 //!   Phase A: drain action queue (from connected clients)
 //!   Phase B: run simulation (call run_tick)
@@ -90,7 +90,7 @@ pub async fn run(
             };
             let _ = broadcast_tx.send(positions);
 
-            // Send TICK_SYNC every 10 ticks (~200ms)
+            // Send TICK_SYNC every 10 ticks (~100ms)
             if tick_number % 10 == 0 {
                 let sync = protocol::encode_tick_sync(tick_number);
                 let _ = broadcast_tx.send(sync);
@@ -122,8 +122,8 @@ pub async fn run(
             load_warning_count = 0;
         }
 
-        // Log every 250 ticks (~5 seconds)
-        if tick_number % 250 == 0 {
+        // Log every 500 ticks (~5 seconds)
+        if tick_number % 500 == 0 {
             tracing::info!(
                 "Tick {} — {:.2}ms — {} bodies — {} clients — {} actions",
                 tick_number, tick_ms, body_count, client_count, input_count,
