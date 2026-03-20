@@ -94,6 +94,7 @@ export class PlaneVehicle implements VehicleController {
   private throttle = 0.5
   private speed = 0
   private airRollTarget = 0
+  private airRolling = false
   private orientation = new THREE.Quaternion()
   private position = new THREE.Vector3()
   private planeMesh: THREE.Group | null = null
@@ -172,27 +173,39 @@ export class PlaneVehicle implements VehicleController {
       _stickY *= scale
     }
 
-    const effX = Math.abs(_stickX) > STICK_DEAD_ZONE ? _stickX - Math.sign(_stickX) * STICK_DEAD_ZONE : 0
-    const effY = Math.abs(_stickY) > STICK_DEAD_ZONE ? _stickY - Math.sign(_stickY) * STICK_DEAD_ZONE : 0
-
-    if (effX !== 0 || effY !== 0) {
-      _inputQ.setFromEuler(new THREE.Euler(effY * PITCH_SPEED, 0, -effX * ROLL_SPEED, 'XYZ'))
-      this.orientation.multiply(_inputQ)
-    }
-
+    // Stick drift back to center (auto-levels when you let go)
     _stickX *= STICK_DRIFT_BACK
     _stickY *= STICK_DRIFT_BACK
 
-    // === AUTO-LEVEL ===
-    if (Math.abs(effX) < 1 && Math.abs(effY) < 1) {
+    // Dead zone — stick must be past threshold to affect plane
+    const stickMag = Math.sqrt(_stickX * _stickX + _stickY * _stickY)
+
+    if (stickMag > STICK_DEAD_ZONE) {
+      // === EXACT 3dGraphUniverse rotation (controls.js lines 360-376) ===
+      // Combined single-axis rotation from effective stick displacement
+      const effectiveMag = stickMag - STICK_DEAD_ZONE
+      const nx = _stickX / stickMag // normalized direction
+      const ny = _stickY / stickMag
+      const ex = nx * effectiveMag  // effective displacement
+      const ey = ny * effectiveMag
+
+      const axis = new THREE.Vector3(
+        -ey * PITCH_SPEED,
+        0,
+        -ex * ROLL_SPEED
+      ).normalize()
+
+      const angle = effectiveMag * Math.max(PITCH_SPEED, ROLL_SPEED) * 0.25
+      _inputQ.setFromAxisAngle(axis, angle)
+      this.orientation.multiply(_inputQ)
+    } else {
+      // === AUTO-LEVEL (controls.js lines 382-390) ===
+      // Inside dead zone — gently roll back toward wings-level
       _right.set(1, 0, 0).applyQuaternion(this.orientation)
-      const bankAngle = Math.asin(Math.max(-1, Math.min(1, -_right.y)))
+      const bankAngle = Math.asin(THREE.MathUtils.clamp(-_right.y, -1, 1))
       if (Math.abs(bankAngle) > 0.01) {
-        _levelQ.setFromAxisAngle(
-          new THREE.Vector3(0, 0, 1).applyQuaternion(this.orientation).normalize(),
-          -bankAngle * AUTO_LEVEL_RATE
-        )
-        this.orientation.premultiply(_levelQ)
+        _levelQ.setFromAxisAngle(new THREE.Vector3(0, 0, 1), -bankAngle * AUTO_LEVEL_RATE)
+        this.orientation.multiply(_levelQ)
       }
     }
 
@@ -205,15 +218,22 @@ export class PlaneVehicle implements VehicleController {
       this.orientation.premultiply(_yawQ)
     }
 
-    // === AIR ROLL (Q/E) ===
-    if (keys['q']) this.airRollTarget = Math.PI
-    if (keys['e']) this.airRollTarget = -Math.PI
-    if (Math.abs(this.airRollTarget) > 0.01) {
-      const rollStep = Math.sign(this.airRollTarget) * Math.min(AIR_ROLL_SPEED, Math.abs(this.airRollTarget))
-      _fwd.set(0, 0, -1).applyQuaternion(this.orientation)
-      _inputQ.setFromAxisAngle(_fwd, rollStep)
-      this.orientation.premultiply(_inputQ)
-      this.airRollTarget -= rollStep
+    // === AIR ROLL Q/E (exact from controls.js lines 406-421) ===
+    if (keys['q'] && !this.airRolling) { this.airRollTarget = Math.PI; this.airRolling = true }
+    if (keys['e'] && !this.airRolling) { this.airRollTarget = -Math.PI; this.airRolling = true }
+    if (this.airRolling) {
+      const step = Math.sign(this.airRollTarget) * AIR_ROLL_SPEED
+      let airRollAngle: number
+      if (Math.abs(this.airRollTarget) > Math.abs(step)) {
+        this.airRollTarget -= step
+        airRollAngle = step
+      } else {
+        airRollAngle = this.airRollTarget
+        this.airRollTarget = 0
+        this.airRolling = false
+      }
+      _inputQ.setFromAxisAngle(new THREE.Vector3(0, 0, 1), airRollAngle)
+      this.orientation.multiply(_inputQ)
     }
 
     // === FORWARD MOTION ===
@@ -245,7 +265,10 @@ export class PlaneVehicle implements VehicleController {
       .addScaledVector(_up, CAMERA_OFFSET_UP)
     camera.position.lerp(_cameraTarget, CAMERA_LERP_POS)
 
-    _camUp.copy(_up).multiplyScalar(0.7).add(new THREE.Vector3(0, 0.3, 0)).normalize()
+    // Camera up: 70% plane up + 30% world up (exact from controls.js line 466)
+    // Prevents camera flip during extreme bank angles
+    const cameraTilt = 0.7
+    _camUp.copy(_up).multiplyScalar(cameraTilt).add(new THREE.Vector3(0, 1 - cameraTilt, 0)).normalize()
     _lookTarget.copy(this.position).addScaledVector(_fwd, CAMERA_LOOK_AHEAD)
     _lookM.lookAt(camera.position, _lookTarget, _camUp)
     _lookQ.setFromRotationMatrix(_lookM)

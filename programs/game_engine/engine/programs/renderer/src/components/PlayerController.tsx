@@ -43,6 +43,9 @@ const WALL_CHECK_DIST = 0.4  // metres — stop before walls
 const MAX_DELTA = 0.1        // cap frame delta to prevent teleporting
 const STAIR_ENTER_DOT = 0.3  // minimum alignment with stair direction to enter
 const STAIR_COOLDOWN = 3     // frames to wait after stair state change
+const JUMP_VELOCITY = 6.0    // m/s upward on jump
+const GRAVITY = 15.0         // m/s² downward
+const ISLAND_RADIUS = 50     // metres — must match Terrain.tsx
 
 // ============================================================================
 // Stair System (ported from ELEV8 lib/staircases.ts)
@@ -222,6 +225,10 @@ export function PlayerController() {
   }>({ state: 'FLAT', currentStairId: null, cooldownFrames: 0 })
 
   const currentFloorYRef = useRef<number | null>(null)
+
+  // Jump state
+  const verticalVelRef = useRef(0)
+  const isGroundedRef = useRef(true)
 
   // --- Pointer lock: click to lock, ESC to unlock ---
   useEffect(() => {
@@ -413,7 +420,23 @@ export function PlayerController() {
     }
 
     // ================================================================
-    // VERTICAL POSITION (Y) — from ELEV8 "Final Authoritative Y Injection"
+    // ISLAND BOUNDARY — prevent walking off the edge
+    // ================================================================
+
+    if (!_flyMode) {
+      const distFromCenter = Math.sqrt(
+        camera.position.x * camera.position.x + camera.position.z * camera.position.z
+      )
+      if (distFromCenter > ISLAND_RADIUS - 1.0) {
+        // Push back toward center
+        const pushBack = (distFromCenter - (ISLAND_RADIUS - 1.0)) / distFromCenter
+        camera.position.x -= camera.position.x * pushBack
+        camera.position.z -= camera.position.z * pushBack
+      }
+    }
+
+    // ================================================================
+    // VERTICAL POSITION (Y) — jump physics + ground collision
     // ================================================================
 
     if (_flyMode) {
@@ -452,12 +475,31 @@ export function PlayerController() {
         stair.bottomFloorY, stair.topFloorY, progress
       ) + EYE_HEIGHT
     } else {
-      // FLAT: smooth approach to current logical floor height
-      camera.position.y = THREE.MathUtils.lerp(
-        camera.position.y,
-        (currentFloorYRef.current || 0) + EYE_HEIGHT,
-        0.3
-      )
+      // FLAT: jump physics + gravity + ground collision
+      const floorY = (currentFloorYRef.current || 0)
+      const targetY = floorY + EYE_HEIGHT
+
+      // Jump initiation
+      if (KEYS.space && isGroundedRef.current) {
+        verticalVelRef.current = JUMP_VELOCITY
+        isGroundedRef.current = false
+      }
+
+      if (!isGroundedRef.current) {
+        // In air — apply gravity
+        verticalVelRef.current -= GRAVITY * dt
+        camera.position.y += verticalVelRef.current * dt
+
+        // Ground collision
+        if (camera.position.y <= targetY) {
+          camera.position.y = targetY
+          verticalVelRef.current = 0
+          isGroundedRef.current = true
+        }
+      } else {
+        // On ground — snap to floor height
+        camera.position.y = THREE.MathUtils.lerp(camera.position.y, targetY, 0.3)
+      }
     }
   })
 
