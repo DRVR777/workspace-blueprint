@@ -1,17 +1,20 @@
 /**
  * useWorldState — produces a fresh WorldSnapshot every frame.
  *
- * Selects between stub (offline) and network (connected) mode:
- *   - If NEXUS_SERVER env var is set → network mode (real WebSocket)
- *   - Otherwise → stub mode (50 orbiting entities, no server needed)
+ * Connection logic:
+ *   1. If VITE_NEXUS_SERVER env var is set → use that URL (dev override)
+ *   2. If page is served from a remote host (not localhost) → connect to ws://same-host:9001
+ *   3. Otherwise → stub mode (50 orbiting entities, no server)
  *
- * The hook interface is the same either way.
+ * This means:
+ *   - Local dev with no env var → stub mode (works offline)
+ *   - Local dev with VITE_NEXUS_SERVER=ws://65.108.67.204:9001 → connects to VPS
+ *   - Served from VPS (http://65.108.67.204) → auto-connects to ws://65.108.67.204:9001
  */
 import { useRef, useEffect } from 'react'
 import { useFrame } from '@react-three/fiber'
 import type { WorldSnapshot } from '../types/world'
 
-// Network imports
 import {
   connect,
   disconnect,
@@ -19,30 +22,43 @@ import {
   snapshotWorldState as networkSnapshot,
 } from '../network/useNetworkState'
 
-// Stub imports (fallback when no server)
 import {
   stepWorldState as stubStep,
   snapshotWorldState as stubSnapshot,
 } from '../simulation/worldStateStub'
 
-// Detect server URL from env or global
-const SERVER_URL: string | undefined =
-  (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_NEXUS_SERVER) ||
-  undefined
+// Determine server URL
+function getServerUrl(): string | null {
+  // 1. Explicit env var (dev override)
+  const envUrl = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_NEXUS_SERVER) as string | undefined
+  if (envUrl) return envUrl
 
+  // 2. Auto-detect from page URL (when served from VPS)
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname
+    if (host && host !== 'localhost' && host !== '127.0.0.1') {
+      const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+      return `${wsProtocol}//${host}:9001`
+    }
+  }
+
+  // 3. No server — stub mode
+  return null
+}
+
+const SERVER_URL = getServerUrl()
 const USE_NETWORK = !!SERVER_URL
 
 export function useWorldState(): React.MutableRefObject<WorldSnapshot | null> {
   const snapshotRef = useRef<WorldSnapshot | null>(null)
 
-  // Connect to server on mount (if network mode)
   useEffect(() => {
     if (USE_NETWORK) {
       console.log(`[useWorldState] Network mode → ${SERVER_URL}`)
-      connect(SERVER_URL)
+      connect(SERVER_URL!)
       return () => disconnect()
     } else {
-      console.log('[useWorldState] Stub mode (no VITE_NEXUS_SERVER set)')
+      console.log('[useWorldState] Stub mode (localhost, no VITE_NEXUS_SERVER)')
     }
   }, [])
 
