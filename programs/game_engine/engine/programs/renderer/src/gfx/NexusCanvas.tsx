@@ -22,8 +22,7 @@ export function NexusCanvas({ children, dpr }: NexusCanvasProps) {
         toneMappingExposure: 1.0,
         outputColorSpace: THREE.SRGBColorSpace,
       }}
-      shadows={false}
-      // Phase 0: no shadows — keeps draw call count at minimum
+      shadows
     >
       {children}
     </Canvas>
