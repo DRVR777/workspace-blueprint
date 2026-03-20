@@ -1,20 +1,7 @@
 /**
  * PlaneController — exact port of 3dGraphUniverse/src/controls.js plane mode.
- *
- * This is a line-for-line adaptation of the final working plane physics from
- * the 3dGraphUniverse project (commit: plane-mode branch, latest).
- *
- * Implements VehicleController interface for the modular vehicle system.
- *
- * Physics:
- *   - Virtual stick with dead zone + drift-back-to-center
- *   - Combined single-axis rotation (no pitch/roll asymmetry)
- *   - Auto-level when stick is centered
- *   - Bank-to-turn (bankTurnRate = 0.025)
- *   - Speed-dependent lift vs gravity
- *   - Camera tilt blend (0 = level, 0.7 default, 1.0 = cockpit)
- *
- * Source: 3dGraphUniverse/src/controls.js lines 314-486
+ * Includes: physics, reticle, calibration UI, settings panel.
+ * Source: 3dGraphUniverse/src/controls.js (plane-mode branch, commit 2df5f10)
  */
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
@@ -22,31 +9,33 @@ import type { VehicleController } from './VehicleSystem'
 import { sendMoveAction } from '../network/useNetworkState'
 
 // ============================================================================
-// Constants (exact values from 3dGraphUniverse)
+// Tunable values — exposed to settings UI, mutable at runtime
 // ============================================================================
 
-const MAX_SPEED = 0.4
-const MIN_SPEED = 0.05
-const SPEED_DAMPING = 0.02
-const GRAVITY = 0.004
-const PITCH_SPEED = 0.0012
-const ROLL_SPEED = 0.0015
-const BANK_TURN_RATE = 0.015
-const AIR_ROLL_SPEED = 0.08
-const AUTO_LEVEL_RATE = 0.02
-const STICK_INPUT_SCALE = 0.5
-const STICK_MAX_RADIUS = 100
-const STICK_DRIFT_BACK = 0.94
-const STICK_DEAD_ZONE = 8
-const ROTATION_ANGLE_SCALE = 0.25
-const CAMERA_OFFSET_BACK = 16
-const CAMERA_OFFSET_UP = 5
-const CAMERA_LERP_POS = 0.04
-const CAMERA_LERP_LOOK = 0.08
-const CAMERA_TILT_DEFAULT = 0.7
+const defaults = {
+  maxSpeed: 0.4,
+  minSpeed: 0.05,
+  speedDamping: 0.02,
+  gravity: 0.004,
+  pitchSpeed: 0.0012,
+  rollSpeed: 0.0015,
+  bankTurnRate: 0.015,
+  airRollSpeed: 0.08,
+  autoLevelRate: 0.02,
+  stickInputScale: 0.5,
+  stickMaxRadius: 100,
+  stickDriftBack: 0.94,
+  stickDeadZone: 8,
+  rotationAngleScale: 0.25,
+  cameraOffsetBack: 16,
+  cameraOffsetUp: 5,
+  cameraLerpPos: 0.04,
+  cameraLerpLook: 0.08,
+  cameraTilt: 0.7,
+}
 
 // ============================================================================
-// Mouse input (module-level — shared across instances)
+// Mouse input (module-level)
 // ============================================================================
 
 let _mouseDX = 0
@@ -64,8 +53,171 @@ function ensureMouseListener(): void {
 }
 
 // ============================================================================
+// DOM UI helpers
+// ============================================================================
+
+function createReticleEl(): HTMLDivElement {
+  let el = document.getElementById('plane-reticle') as HTMLDivElement
+  if (el) return el
+
+  el = document.createElement('div')
+  el.id = 'plane-reticle'
+  el.style.cssText = `
+    position: fixed; width: 20px; height: 20px;
+    border: 1.5px solid rgba(255,255,255,0.35);
+    border-radius: 50%;
+    pointer-events: none; z-index: 16;
+    display: none;
+    transform: translate(-50%, -50%);
+  `
+  const dot = document.createElement('div')
+  dot.style.cssText = `
+    position: absolute; top: 50%; left: 50%;
+    width: 3px; height: 3px;
+    background: rgba(255,255,255,0.6);
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+  `
+  el.appendChild(dot)
+  document.body.appendChild(el)
+  return el
+}
+
+function createCalibrationEl(): HTMLDivElement {
+  let el = document.getElementById('plane-calibration-ui') as HTMLDivElement
+  if (el) return el
+
+  el = document.createElement('div')
+  el.id = 'plane-calibration-ui'
+  el.style.cssText = `
+    position: fixed; top: 14px; right: 14px;
+    background: rgba(10,10,20,0.92); border: 2px solid #f59e0b;
+    border-radius: 12px; padding: 20px 28px; z-index: 100;
+    font-family: monospace; color: #fbbf24; text-align: center;
+    display: none; pointer-events: none;
+  `
+  el.innerHTML = `
+    <div style="font-size:1.1rem;font-weight:bold;margin-bottom:8px;">CALIBRATION MODE</div>
+    <div style="font-size:0.8rem;color:rgba(255,255,255,0.6);line-height:1.6;">
+      Arrow Left/Right — Y axis<br>
+      Arrow Up/Down — X axis<br>
+      U / O — Z axis (roll)<br>
+      C — exit calibration<br><br>
+      Check console (F12) for MODEL_OFFSET values
+    </div>
+  `
+  document.body.appendChild(el)
+  return el
+}
+
+function createSettingsEl(settings: Record<string, number>): HTMLDivElement {
+  let el = document.getElementById('plane-settings-panel') as HTMLDivElement
+  if (el) return el
+
+  el = document.createElement('div')
+  el.id = 'plane-settings-panel'
+  el.style.cssText = `
+    position: fixed; bottom: 14px; right: 14px; z-index: 25;
+  `
+
+  const toggle = document.createElement('button')
+  toggle.textContent = 'Plane Settings'
+  toggle.style.cssText = `
+    background: rgba(40,40,55,0.9); border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 8px; padding: 8px 16px; color: rgba(255,255,255,0.7);
+    font-family: inherit; font-weight: 500; font-size: 0.82rem; cursor: pointer;
+  `
+
+  const form = document.createElement('div')
+  form.style.cssText = `
+    margin-bottom: 8px; width: 280px; max-height: 60vh; overflow-y: auto;
+    background: rgba(20,20,30,0.92); backdrop-filter: blur(12px);
+    border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 16px;
+    transform: scaleY(0); opacity: 0; pointer-events: none; height: 0;
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1); transform-origin: bottom right;
+  `
+
+  // Prevent key events from moving the plane while adjusting sliders
+  form.addEventListener('keydown', (e) => e.stopPropagation())
+
+  const sliderDefs: Array<{ key: string; label: string; min: number; max: number; step: number }> = [
+    { key: 'maxSpeed', label: 'Max Speed', min: 0.1, max: 2.0, step: 0.01 },
+    { key: 'minSpeed', label: 'Min Speed', min: 0, max: 0.2, step: 0.005 },
+    { key: 'pitchSpeed', label: 'Pitch Rate', min: 0.0002, max: 0.005, step: 0.0001 },
+    { key: 'rollSpeed', label: 'Roll Rate', min: 0.0002, max: 0.005, step: 0.0001 },
+    { key: 'bankTurnRate', label: 'Bank Turn', min: 0.002, max: 0.06, step: 0.001 },
+    { key: 'gravity', label: 'Gravity', min: 0, max: 0.02, step: 0.001 },
+    { key: 'speedDamping', label: 'Speed Damp', min: 0.005, max: 0.1, step: 0.005 },
+    { key: 'cameraLerpPos', label: 'Cam Follow', min: 0.01, max: 0.2, step: 0.005 },
+    { key: 'cameraTilt', label: 'Cam Tilt', min: 0, max: 1.0, step: 0.05 },
+  ]
+
+  const title = document.createElement('div')
+  title.style.cssText = 'font-size:0.7rem; text-transform:uppercase; letter-spacing:1px; color:rgba(99,102,241,0.7); margin-bottom:8px;'
+  title.textContent = 'Plane Physics'
+  form.appendChild(title)
+
+  sliderDefs.forEach(s => {
+    const row = document.createElement('div')
+    row.style.cssText = 'display:flex; align-items:center; gap:8px; margin-bottom:5px;'
+
+    const label = document.createElement('label')
+    label.style.cssText = 'font-size:0.72rem; color:rgba(255,255,255,0.5); width:75px; flex-shrink:0;'
+    label.textContent = s.label
+
+    const slider = document.createElement('input')
+    slider.type = 'range'
+    slider.min = String(s.min)
+    slider.max = String(s.max)
+    slider.step = String(s.step)
+    slider.value = String(settings[s.key])
+    slider.style.cssText = 'flex:1; -webkit-appearance:none; height:3px; background:rgba(255,255,255,0.12); border-radius:2px; outline:none;'
+
+    const val = document.createElement('span')
+    val.style.cssText = 'font-size:0.68rem; color:rgba(255,255,255,0.35); width:38px; text-align:right; font-family:monospace;'
+    val.textContent = Number(settings[s.key]).toFixed(4)
+
+    slider.addEventListener('input', () => {
+      const v = parseFloat(slider.value)
+      settings[s.key] = v
+      val.textContent = v.toFixed(4)
+    })
+
+    row.appendChild(label)
+    row.appendChild(slider)
+    row.appendChild(val)
+    form.appendChild(row)
+  })
+
+  let open = false
+  toggle.addEventListener('click', () => {
+    open = !open
+    if (open) {
+      form.style.transform = 'scaleY(1)'
+      form.style.opacity = '1'
+      form.style.pointerEvents = 'auto'
+      form.style.height = 'auto'
+      form.style.padding = '16px'
+    } else {
+      form.style.transform = 'scaleY(0)'
+      form.style.opacity = '0'
+      form.style.pointerEvents = 'none'
+      form.style.height = '0'
+      form.style.padding = '0 16px'
+    }
+  })
+
+  el.appendChild(form)
+  el.appendChild(toggle)
+  document.body.appendChild(el)
+  return el
+}
+
+// ============================================================================
 // PlaneVehicle
 // ============================================================================
+
+const DEG2 = Math.PI / 90
 
 export class PlaneVehicle implements VehicleController {
   readonly type = 'plane'
@@ -75,23 +227,72 @@ export class PlaneVehicle implements VehicleController {
   private speed = 0
   private airRollTarget = 0
   private airRolling = false
-  private cameraTilt = CAMERA_TILT_DEFAULT
   private orientation = new THREE.Quaternion()
   private position = new THREE.Vector3()
   private planeMesh: THREE.Group | null = null
   private planeGLB: THREE.Group | null = null
   private glbLoaded = false
-  private modelRotationOffset = new THREE.Quaternion(0, 1, 0, 0) // 180° Y rotation
+  private modelRotationOffset = new THREE.Quaternion(0, 1, 0, 0)
   private keys: Record<string, boolean> = {}
+  private calibrating = false
 
-  // Virtual stick state (from 3dGraphUniverse)
+  // Virtual stick
   private stickX = 0
   private stickY = 0
 
+  // Tunable settings (mutable — settings UI writes directly to this)
+  public settings: Record<string, number> = { ...defaults }
+
+  // DOM elements
+  private reticleEl: HTMLDivElement | null = null
+  private calibrationEl: HTMLDivElement | null = null
+  private settingsEl: HTMLDivElement | null = null
+
   constructor() {
     if (typeof window !== 'undefined') {
-      window.addEventListener('keydown', (e) => { this.keys[e.key.toLowerCase()] = true })
-      window.addEventListener('keyup', (e) => { this.keys[e.key.toLowerCase()] = false })
+      window.addEventListener('keydown', (e) => {
+        this.keys[e.code] = true
+
+        // C toggles calibration
+        if (e.code === 'KeyC' && this.active) {
+          e.preventDefault()
+          this.calibrating = !this.calibrating
+          if (this.calibrationEl) {
+            this.calibrationEl.style.display = this.calibrating ? 'block' : 'none'
+          }
+          if (this.calibrating) {
+            document.exitPointerLock()
+          }
+          return
+        }
+
+        // Calibration key handling
+        if (this.calibrating) {
+          let rotated = false
+          const q = new THREE.Quaternion()
+          if (e.code === 'ArrowLeft')  { q.setFromAxisAngle(new THREE.Vector3(0,1,0),  DEG2); rotated = true }
+          if (e.code === 'ArrowRight') { q.setFromAxisAngle(new THREE.Vector3(0,1,0), -DEG2); rotated = true }
+          if (e.code === 'ArrowUp')    { q.setFromAxisAngle(new THREE.Vector3(1,0,0),  DEG2); rotated = true }
+          if (e.code === 'ArrowDown')  { q.setFromAxisAngle(new THREE.Vector3(1,0,0), -DEG2); rotated = true }
+          if (e.code === 'KeyU')       { q.setFromAxisAngle(new THREE.Vector3(0,0,1),  DEG2); rotated = true }
+          if (e.code === 'KeyO')       { q.setFromAxisAngle(new THREE.Vector3(0,0,1), -DEG2); rotated = true }
+          if (rotated) {
+            this.modelRotationOffset.multiply(q)
+            const o = this.modelRotationOffset
+            console.log('MODEL_OFFSET:', JSON.stringify({
+              x: +o.x.toFixed(6), y: +o.y.toFixed(6), z: +o.z.toFixed(6), w: +o.w.toFixed(6)
+            }))
+          }
+          return
+        }
+
+        // Air roll Q/E
+        if (this.active && !this.calibrating) {
+          if (e.code === 'KeyQ' && !this.airRolling) { this.airRollTarget = Math.PI; this.airRolling = true }
+          if (e.code === 'KeyE' && !this.airRolling) { this.airRollTarget = -Math.PI; this.airRolling = true }
+        }
+      })
+      window.addEventListener('keyup', (e) => { this.keys[e.code] = false })
       ensureMouseListener()
     }
   }
@@ -101,17 +302,35 @@ export class PlaneVehicle implements VehicleController {
   enter(position: THREE.Vector3, orientation?: THREE.Quaternion): void {
     this.position.copy(position)
     this.position.y = Math.max(this.position.y, 50)
-    this.orientation.copy(orientation ?? new THREE.Quaternion())
+    // Extract yaw only from orientation (spawn level, facing camera direction)
+    if (orientation) {
+      const euler = new THREE.Euler().setFromQuaternion(orientation, 'YXZ')
+      this.orientation.setFromEuler(new THREE.Euler(0, euler.y, 0, 'YXZ'))
+    } else {
+      this.orientation.identity()
+    }
     this.throttle = 0.5
-    this.speed = MIN_SPEED
+    this.speed = this.settings.minSpeed
     this.stickX = 0
     this.stickY = 0
+    this.calibrating = false
     this.active = true
+
+    // Create DOM elements
+    this.reticleEl = createReticleEl()
+    this.reticleEl.style.display = 'block'
+    this.calibrationEl = createCalibrationEl()
+    this.settingsEl = createSettingsEl(this.settings)
+    this.settingsEl.style.display = 'block'
   }
 
   exit(): THREE.Vector3 {
     this.active = false
+    this.calibrating = false
     if (this.planeMesh) this.planeMesh.visible = false
+    if (this.reticleEl) this.reticleEl.style.display = 'none'
+    if (this.calibrationEl) this.calibrationEl.style.display = 'none'
+    if (this.settingsEl) this.settingsEl.style.display = 'none'
     return this.position.clone()
   }
 
@@ -139,148 +358,165 @@ export class PlaneVehicle implements VehicleController {
     }
     this.planeMesh.visible = true
 
+    const s = this.settings
     const keys = this.keys
 
-    // === Throttle (controls.js lines 322-327) ===
-    const boost = keys['shift'] ? 2.0 : 1.0
-    if (keys['w']) this.throttle = Math.min(1.0, this.throttle + 0.008)
-    if (keys['s']) this.throttle = Math.max(0.0, this.throttle - 0.006)
-    const targetSpeed = (MIN_SPEED + this.throttle * (MAX_SPEED - MIN_SPEED)) * boost
-    this.speed += (targetSpeed - this.speed) * SPEED_DAMPING
+    if (!this.calibrating) {
+      // === Throttle ===
+      const boost = keys['ShiftLeft'] || keys['ShiftRight'] ? 2.0 : 1.0
+      if (keys['KeyW']) this.throttle = Math.min(1.0, this.throttle + 0.008)
+      if (keys['KeyS']) this.throttle = Math.max(0.0, this.throttle - 0.006)
+      const targetSpeed = (s.minSpeed + this.throttle * (s.maxSpeed - s.minSpeed)) * boost
+      this.speed += (targetSpeed - this.speed) * s.speedDamping
 
-    // === Mouse → virtual stick (controls.js lines 334-348) ===
-    if (document.pointerLockElement) {
-      this.stickX += _mouseDX * STICK_INPUT_SCALE
-      this.stickY += _mouseDY * STICK_INPUT_SCALE
+      // === Mouse → virtual stick ===
+      if (document.pointerLockElement) {
+        this.stickX += _mouseDX * s.stickInputScale
+        this.stickY += _mouseDY * s.stickInputScale
 
-      const stickDist = Math.sqrt(this.stickX ** 2 + this.stickY ** 2)
-      if (stickDist > STICK_MAX_RADIUS) {
-        this.stickX *= STICK_MAX_RADIUS / stickDist
-        this.stickY *= STICK_MAX_RADIUS / stickDist
+        const stickDist = Math.sqrt(this.stickX ** 2 + this.stickY ** 2)
+        if (stickDist > s.stickMaxRadius) {
+          this.stickX *= s.stickMaxRadius / stickDist
+          this.stickY *= s.stickMaxRadius / stickDist
+        }
       }
-    }
-    _mouseDX = 0
-    _mouseDY = 0
+      _mouseDX = 0
+      _mouseDY = 0
 
-    // Drift stick back to center (controls.js lines 350-352)
-    this.stickX *= STICK_DRIFT_BACK
-    this.stickY *= STICK_DRIFT_BACK
+      // Drift stick back to center
+      this.stickX *= s.stickDriftBack
+      this.stickY *= s.stickDriftBack
 
-    // Dead zone + combined single-axis rotation (controls.js lines 354-390)
-    const stickMag = Math.sqrt(this.stickX * this.stickX + this.stickY * this.stickY)
+      // Dead zone + combined single-axis rotation
+      const stickMag = Math.sqrt(this.stickX * this.stickX + this.stickY * this.stickY)
 
-    if (stickMag > STICK_DEAD_ZONE) {
-      // Subtract dead zone from magnitude
-      const effectiveMag = stickMag - STICK_DEAD_ZONE
-      const nx = this.stickX / stickMag
-      const ny = this.stickY / stickMag
-      const ex = nx * effectiveMag
-      const ey = ny * effectiveMag
+      if (stickMag > s.stickDeadZone) {
+        const effectiveMag = stickMag - s.stickDeadZone
+        const nx = this.stickX / stickMag
+        const ny = this.stickY / stickMag
+        const ex = nx * effectiveMag
+        const ey = ny * effectiveMag
 
-      // Combined axis: mouse direction → one rotation axis in local space
-      // Negated to match working 3dGraphUniverse signs exactly
-      const axis = new THREE.Vector3(
-        -ey * PITCH_SPEED,
-        0,
-        -ex * ROLL_SPEED
-      ).normalize()
+        // Combined axis — EXACT signs from working 3dGraphUniverse
+        const axis = new THREE.Vector3(
+          -ey * s.pitchSpeed,
+          0,
+          -ex * s.rollSpeed
+        ).normalize()
 
-      const angle = effectiveMag * Math.max(PITCH_SPEED, ROLL_SPEED) * ROTATION_ANGLE_SCALE
-      const inputQ = new THREE.Quaternion().setFromAxisAngle(axis, angle)
-      this.orientation.multiply(inputQ)
-    } else {
-      // Inside dead zone — auto-level the bank (controls.js lines 382-390)
-      const planeRight = new THREE.Vector3(1, 0, 0).applyQuaternion(this.orientation)
-      const bankAngle = Math.asin(THREE.MathUtils.clamp(-planeRight.y, -1, 1))
-      if (Math.abs(bankAngle) > 0.01) {
-        const levelQ = new THREE.Quaternion().setFromAxisAngle(
-          new THREE.Vector3(0, 0, 1), -bankAngle * AUTO_LEVEL_RATE
-        )
-        this.orientation.multiply(levelQ)
-      }
-    }
-
-    // === Bank-to-turn (controls.js lines 393-404) ===
-    const planeRight = new THREE.Vector3(1, 0, 0).applyQuaternion(this.orientation)
-    const bankAmount = Math.asin(THREE.MathUtils.clamp(-planeRight.y, -1, 1))
-    // Positive: matches working 3dGraphUniverse exactly
-    const bankYaw = bankAmount * BANK_TURN_RATE * (this.speed / MAX_SPEED)
-    if (Math.abs(bankYaw) > 0.00001) {
-      const yawQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), bankYaw)
-      this.orientation.premultiply(yawQ)
-    }
-
-    // === Air roll Q/E (controls.js lines 406-421) ===
-    if (keys['q'] && !this.airRolling) { this.airRollTarget = Math.PI; this.airRolling = true }
-    if (keys['e'] && !this.airRolling) { this.airRollTarget = -Math.PI; this.airRolling = true }
-    if (this.airRolling) {
-      const step = Math.sign(this.airRollTarget) * AIR_ROLL_SPEED
-      let airRollAngle: number
-      if (Math.abs(this.airRollTarget) > Math.abs(step)) {
-        this.airRollTarget -= step
-        airRollAngle = step
+        const angle = effectiveMag * Math.max(s.pitchSpeed, s.rollSpeed) * s.rotationAngleScale
+        const inputQ = new THREE.Quaternion().setFromAxisAngle(axis, angle)
+        this.orientation.multiply(inputQ)
       } else {
-        airRollAngle = this.airRollTarget
-        this.airRollTarget = 0
-        this.airRolling = false
+        // Inside dead zone — auto-level
+        const planeRight = new THREE.Vector3(1, 0, 0).applyQuaternion(this.orientation)
+        const bankAngle = Math.asin(THREE.MathUtils.clamp(-planeRight.y, -1, 1))
+        if (Math.abs(bankAngle) > 0.01) {
+          const levelQ = new THREE.Quaternion().setFromAxisAngle(
+            new THREE.Vector3(0, 0, 1), -bankAngle * s.autoLevelRate
+          )
+          this.orientation.multiply(levelQ)
+        }
       }
-      this.orientation.multiply(
-        new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), airRollAngle)
-      )
+
+      // === Bank-to-turn ===
+      const planeRight = new THREE.Vector3(1, 0, 0).applyQuaternion(this.orientation)
+      const bankAmount = Math.asin(THREE.MathUtils.clamp(-planeRight.y, -1, 1))
+      const bankYaw = bankAmount * s.bankTurnRate * (this.speed / s.maxSpeed)
+      if (Math.abs(bankYaw) > 0.00001) {
+        const yawQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), bankYaw)
+        this.orientation.premultiply(yawQ)
+      }
+
+      // === Air roll (Q/E) ===
+      if (keys['KeyQ'] && !this.airRolling) { this.airRollTarget = Math.PI; this.airRolling = true }
+      if (keys['KeyE'] && !this.airRolling) { this.airRollTarget = -Math.PI; this.airRolling = true }
+      if (this.airRolling) {
+        const step = Math.sign(this.airRollTarget) * s.airRollSpeed
+        let airRollAngle: number
+        if (Math.abs(this.airRollTarget) > Math.abs(step)) {
+          this.airRollTarget -= step
+          airRollAngle = step
+        } else {
+          airRollAngle = this.airRollTarget
+          this.airRollTarget = 0
+          this.airRolling = false
+        }
+        this.orientation.multiply(
+          new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), airRollAngle)
+        )
+      }
+
+      this.orientation.normalize()
+
+      // === Movement ===
+      const noseDir = new THREE.Vector3(0, 0, -1).applyQuaternion(this.orientation)
+      this.position.addScaledVector(noseDir, this.speed)
+
+      // Gravity + lift
+      const planeUp = new THREE.Vector3(0, 1, 0).applyQuaternion(this.orientation)
+      const liftUp = Math.max(0, planeUp.y)
+      const netGravity = s.gravity * (1.0 - liftUp * Math.min(this.speed / s.minSpeed, 1.0))
+      this.position.y -= netGravity
+
+      // Space/Ctrl trim
+      if (keys['Space']) this.position.y += this.speed * 0.3
+      if (keys['ControlLeft'] || keys['ControlRight']) this.position.y -= this.speed * 0.3
+
+      // Floor clamp
+      if (this.position.y < 2) this.position.y = 2
+
+    } else {
+      _mouseDX = 0
+      _mouseDY = 0
     }
 
-    this.orientation.normalize()
-
-    // === Movement (controls.js lines 425-438) ===
-    const noseDir = new THREE.Vector3(0, 0, -1).applyQuaternion(this.orientation)
-    this.position.addScaledVector(noseDir, this.speed)
-
-    // Gravity + lift
-    const planeUp = new THREE.Vector3(0, 1, 0).applyQuaternion(this.orientation)
-    const liftUp = Math.max(0, planeUp.y)
-    const netGravity = GRAVITY * (1.0 - liftUp * Math.min(this.speed / MIN_SPEED, 1.0))
-    this.position.y -= netGravity
-
-    // Space/Ctrl trim
-    if (keys[' ']) this.position.y += this.speed * 0.3
-    if (keys['control']) this.position.y -= this.speed * 0.3
-
-    // Floor clamp
-    if (this.position.y < 2) this.position.y = 2
-
-    // === Apply to model (controls.js lines 448-450) ===
-    this.planeMesh.position.copy(this.position)
-    // Apply model rotation offset so GLB aligns with flight direction
-    this.planeMesh.quaternion.copy(this.orientation)
+    // === Apply to model ===
+    this.planeMesh!.position.copy(this.position)
+    this.planeMesh!.quaternion.copy(this.orientation)
     if (this.glbLoaded) {
-      this.planeMesh.quaternion.multiply(this.modelRotationOffset)
+      this.planeMesh!.quaternion.multiply(this.modelRotationOffset)
     }
 
-    // === Camera (controls.js lines 452-471) ===
+    // === Camera ===
     const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(this.orientation)
     const up = new THREE.Vector3(0, 1, 0).applyQuaternion(this.orientation)
 
     const cameraTarget = this.position.clone()
-      .addScaledVector(fwd, -CAMERA_OFFSET_BACK)
-      .addScaledVector(up, CAMERA_OFFSET_UP)
-    camera.position.lerp(cameraTarget, CAMERA_LERP_POS)
+      .addScaledVector(fwd, -s.cameraOffsetBack)
+      .addScaledVector(up, s.cameraOffsetUp)
+    camera.position.lerp(cameraTarget, s.cameraLerpPos)
 
-    // Camera up: blend between plane up and world up
-    const t = this.cameraTilt
+    const t = s.cameraTilt
     const camUp = up.clone().multiplyScalar(t).add(new THREE.Vector3(0, 1 - t, 0)).normalize()
     const lookTarget = this.position.clone().addScaledVector(fwd, 10)
     const lookM = new THREE.Matrix4().lookAt(camera.position, lookTarget, camUp)
     const lookQ = new THREE.Quaternion().setFromRotationMatrix(lookM)
-    camera.quaternion.slerp(lookQ, CAMERA_LERP_LOOK)
+    camera.quaternion.slerp(lookQ, s.cameraLerpLook)
+
+    // === Reticle ===
+    if (this.reticleEl) {
+      const maxOff = 80
+      let rx = this.stickX
+      let ry = this.stickY
+      const offDist = Math.sqrt(rx * rx + ry * ry)
+      if (offDist > maxOff) {
+        rx *= maxOff / offDist
+        ry *= maxOff / offDist
+      }
+      this.reticleEl.style.left = (window.innerWidth / 2 + rx) + 'px'
+      this.reticleEl.style.top = (window.innerHeight / 2 + ry) + 'px'
+      this.reticleEl.style.opacity = '1'
+    }
 
     // === Network ===
-    sendMoveAction(noseDir.x * this.speed, noseDir.y * this.speed, noseDir.z * this.speed)
+    const nose = new THREE.Vector3(0, 0, -1).applyQuaternion(this.orientation)
+    sendMoveAction(nose.x * this.speed, nose.y * this.speed, nose.z * this.speed)
   }
 
   private createPlaneMesh(): THREE.Group {
     const group = new THREE.Group()
 
-    // Placeholder mesh (shown until GLB loads)
     const bodyMat = new THREE.MeshStandardMaterial({ color: 0x6366f1, metalness: 0.8, roughness: 0.2 })
     const wingMat = new THREE.MeshStandardMaterial({ color: 0x8b5cf6, metalness: 0.7, roughness: 0.3 })
 
@@ -302,19 +538,14 @@ export class PlaneVehicle implements VehicleController {
 
     group.add(new THREE.PointLight(0x6366f1, 1, 8))
 
-    // Load real plane.glb model (from 3dGraphUniverse)
-    // Replaces placeholder when loaded
     new GLTFLoader().load('/models/plane.glb', (gltf) => {
       this.planeGLB = gltf.scene
       this.planeGLB.scale.setScalar(3.4)
       this.glbLoaded = true
-
-      // Hide placeholder parts, show GLB
       group.children.forEach(child => {
         if (child instanceof THREE.Mesh) child.visible = false
       })
       group.add(this.planeGLB)
-
       console.log('[Plane] GLB model loaded')
     }, undefined, (err) => {
       console.warn('[Plane] GLB load failed, using placeholder:', err)
