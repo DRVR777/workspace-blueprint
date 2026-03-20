@@ -408,7 +408,7 @@ export class PlaneVehicle implements VehicleController {
         const inputQ = new THREE.Quaternion().setFromAxisAngle(axis, angle)
         this.orientation.multiply(inputQ)
       } else {
-        // Inside dead zone — auto-level
+        // Inside dead zone — auto-level both bank AND pitch
         const planeRight = new THREE.Vector3(1, 0, 0).applyQuaternion(this.orientation)
         const bankAngle = Math.asin(THREE.MathUtils.clamp(-planeRight.y, -1, 1))
         if (Math.abs(bankAngle) > 0.01) {
@@ -416,6 +416,16 @@ export class PlaneVehicle implements VehicleController {
             new THREE.Vector3(0, 0, 1), -bankAngle * s.autoLevelRate
           )
           this.orientation.multiply(levelQ)
+        }
+
+        // Auto-level pitch — nose returns to horizon
+        const noseDir = new THREE.Vector3(0, 0, -1).applyQuaternion(this.orientation)
+        const pitchAngle = Math.asin(THREE.MathUtils.clamp(noseDir.y, -1, 1))
+        if (Math.abs(pitchAngle) > 0.01) {
+          const pitchLevelQ = new THREE.Quaternion().setFromAxisAngle(
+            new THREE.Vector3(1, 0, 0), pitchAngle * 0.015
+          )
+          this.orientation.multiply(pitchLevelQ)
         }
       }
 
