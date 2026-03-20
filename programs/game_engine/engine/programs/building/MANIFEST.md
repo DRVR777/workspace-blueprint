@@ -70,6 +70,26 @@ PRIMITIVE TYPES:
     rotation:   free Y rotation
     physics:    single angled box collider (same as ramp — player walks up smoothly)
 
+    STAIR TRAVERSAL (ported from ELEV8 AvatarController):
+      When a STAIR piece is placed, the building system calls
+      registerStaircase() in PlayerController with:
+        - bottomCenter: world position of stair bottom
+        - topCenter: world position of stair top
+        - bottomFloorY / topFloorY: landing heights
+        - width: walkable width
+        - ignoredMeshNames: stair step meshes to skip during collision
+
+      Player movement uses a state machine (FLAT / ON_STAIRS):
+        ENTERING: player crosses boundary plane + direction aligns → ON_STAIRS
+        ON_STAIRS: Y = lerp(bottomY, topY, progress along center line)
+                   Y is purely mathematical — decoupled from look angle
+                   Width clamping prevents sideways fall-off
+                   Stair step meshes ignored for collision (no clipping)
+        EXITING: player crosses boundary plane again → FLAT, snap to landing Y
+
+      This produces smooth stair walking with no physics jitter.
+      See: engine/programs/renderer/src/components/PlayerController.tsx
+
   ROOF
     shape:      wedge (same geometry as ramp)
     default:    6.0m span × 2.0m peak × 0.15m thick
