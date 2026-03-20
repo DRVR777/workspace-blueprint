@@ -418,14 +418,16 @@ export class PlaneVehicle implements VehicleController {
           this.orientation.multiply(levelQ)
         }
 
-        // Auto-level pitch — nose returns to horizon
+        // Auto-level pitch — nose returns to world horizon
         const noseDir = new THREE.Vector3(0, 0, -1).applyQuaternion(this.orientation)
         const pitchAngle = Math.asin(THREE.MathUtils.clamp(noseDir.y, -1, 1))
         if (Math.abs(pitchAngle) > 0.01) {
+          const noseFlatDir = new THREE.Vector3(noseDir.x, 0, noseDir.z).normalize()
+          const worldRight = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), noseFlatDir).normalize()
           const pitchLevelQ = new THREE.Quaternion().setFromAxisAngle(
-            new THREE.Vector3(1, 0, 0), pitchAngle * 0.015
+            worldRight, -pitchAngle * 0.015
           )
-          this.orientation.multiply(pitchLevelQ)
+          this.orientation.premultiply(pitchLevelQ)
         }
       }
 
