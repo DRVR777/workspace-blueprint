@@ -3,18 +3,16 @@
  *
  * Maps the MANIFEST.md "EACH FRAME" pseudocode to R3F's component model:
  *
- *   Step 1: snapshot  →  useWorldState() (runs in useFrame, fills snapshotRef)
- *   Step 2: camera    →  NexusCamera (reads snapshotRef.player position in Phase 1)
- *   Step 3: cull      →  skipped Phase 0 (EntityField uses frustumCulled=false)
- *   Step 4: cull ents →  skipped Phase 0
+ *   Step 1: snapshot  →  useWorldState() (stub or network, fills snapshotRef)
+ *   Step 2: camera    →  NexusCamera (sets FOV/near/far)
+ *   Step 3: controls  →  PlayerController (WASD + pointer lock + network actions)
+ *   Step 4: cull      →  skipped Phase 0 (EntityField uses frustumCulled=false)
  *   Step 5: batches   →  EntityField (InstancedMesh handles batching internally)
  *   Step 6: terrain   →  Terrain
  *   Step 7: draw      →  Three.js render pass (R3F manages this)
- *   Step 8: entities  →  EntityField (instanced, single draw call)
- *   Step 9: post      →  skipped Phase 0
- *   Step 10: present  →  R3F Canvas manages swap
  */
 import { NexusCamera } from './NexusCamera'
+import { PlayerController } from './PlayerController'
 import { SunLight } from './SunLight'
 import { Terrain } from './Terrain'
 import { EntityField } from './EntityField'
@@ -27,8 +25,11 @@ export function NexusScene() {
 
   return (
     <>
-      {/* Step 2: camera */}
+      {/* Step 2: camera (FOV, near, far) */}
       <NexusCamera />
+
+      {/* Step 3: first-person controls + network action sending */}
+      <PlayerController />
 
       {/* Lighting — sun + ambient diffuse */}
       <SunLight />
@@ -36,7 +37,7 @@ export function NexusScene() {
       {/* Step 6: terrain */}
       <Terrain />
 
-      {/* Steps 5 + 8: entity batch + draw (single instanced call) */}
+      {/* Steps 5 + 7: entity batch + draw (single instanced call) */}
       <EntityField snapshotRef={snapshotRef} />
 
       {/* Frame time measurement */}

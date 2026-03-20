@@ -1,38 +1,34 @@
 /**
- * NexusCamera — implements the camera spec from CONTEXT.md Step 2.
+ * NexusCamera — sets camera parameters from spec.
  *
- * FoV: 90°  near: 0.1  far: 5000
+ * FoV: 75°  near: 0.1  far: 5000
+ * Starting position: (0, 1.6, 5) — eye height, facing forward
  *
- * Phase 0: OrbitControls enabled for visual verification.
- * Phase 1: Replace OrbitControls with player-tracking camera
- *   (camera.position = player_position + offset, look at player).
+ * Controls are handled by PlayerController (PointerLockControls).
+ * This component only configures the camera — it does not add controls.
  */
 import { useEffect } from 'react'
 import { useThree } from '@react-three/fiber'
-import { OrbitControls } from '@react-three/drei'
+import * as THREE from 'three'
 
-const FOV = 90
+const FOV = 75
 const NEAR = 0.1
 const FAR = 5000
-const INITIAL_POSITION: [number, number, number] = [0, 80, 120]
+const INITIAL_POSITION: [number, number, number] = [0, 1.6, 5]
 
 export function NexusCamera() {
   const { camera } = useThree()
 
   useEffect(() => {
-    // Apply spec values — R3F default camera has fov=75, near=0.1, far=1000
     if ('fov' in camera) {
-      (camera as THREE.PerspectiveCamera).fov = FOV;
-      (camera as THREE.PerspectiveCamera).near = NEAR;
-      (camera as THREE.PerspectiveCamera).far = FAR;
+      const pc = camera as THREE.PerspectiveCamera
+      pc.fov = FOV
+      pc.near = NEAR
+      pc.far = FAR
       camera.position.set(...INITIAL_POSITION)
       camera.updateProjectionMatrix()
     }
   }, [camera])
 
-  // OrbitControls: Phase 0 visual verification. Phase 1: remove this.
-  return <OrbitControls makeDefault enableDamping dampingFactor={0.05} />
+  return null
 }
-
-// THREE import needed for type cast above — pulled from global r3f context
-import * as THREE from 'three'
