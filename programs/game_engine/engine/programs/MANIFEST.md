@@ -23,6 +23,7 @@ programs — program-submodule.
   - `renderer` (directory) — R3F frame loop, terrain, entity instancing, camera
   - `local-simulation` (directory) — client-side prediction and server reconciliation
   - `visibility` (directory) — frustum culling, distance gating, LOD delegation
+  - `building` (directory) — structural construction: walls, floors, ramps, 0.3m grid, 16 materials
 
 ## Needs
 

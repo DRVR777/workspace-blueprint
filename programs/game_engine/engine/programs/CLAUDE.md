@@ -11,6 +11,7 @@
 | `local-simulation/` | Client-side prediction and server reconciliation |
 | `renderer/` | Frame production: scene graph, draw batching, R3F render loop |
 | `visibility/` | Frustum culling, distance gating, LOD delegation, front-to-back sorting |
+| `building/` | Structural construction: 9 primitives, 0.3m grid, materials, placement mode (Phase 1) |
 
 ## Quick Rules For This Directory
 
