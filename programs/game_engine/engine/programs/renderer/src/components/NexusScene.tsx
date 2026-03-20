@@ -47,18 +47,21 @@ export function NexusScene() {
     // Future: registerVehicle(new CarVehicle())
     // Future: registerVehicle(new DroneVehicle())
 
-    // Tab toggles plane mode
+    // Tab enters fly mode (vehicle handles Tab internally to switch to plane mode)
+    // Escape exits vehicle entirely
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === 'Tab') {
         e.preventDefault()
-        if (isAnyVehicleActive()) {
-          const pos = exitVehicle()
-          if (pos) {
-            camera.position.copy(pos)
-            camera.position.y = Math.max(camera.position.y, 1.6)
-          }
-        } else {
-          enterVehicle('plane', camera.position.clone())
+        if (!isAnyVehicleActive()) {
+          enterVehicle('plane', camera.position.clone(), camera.quaternion.clone())
+        }
+        // Tab while active is handled inside PlaneVehicle (fly ↔ plane toggle)
+      }
+      if (e.key === 'Escape' && isAnyVehicleActive()) {
+        const pos = exitVehicle()
+        if (pos) {
+          camera.position.copy(pos)
+          camera.position.y = Math.max(camera.position.y, 1.6)
         }
       }
     }
