@@ -18,7 +18,7 @@ use tokio::time;
 
 use nexus_core::constants::{TARGET_TICK_DURATION, HIGH_LOAD_THRESHOLD_MS, LOAD_GRACE_TICKS};
 use nexus_core::types::ChangeRequest;
-use nexus_simulation::run_tick;
+use nexus_simulation::run_tick_mut;
 
 use crate::{WorldState, QueuedAction};
 use crate::clients::ClientManager;
@@ -53,32 +53,18 @@ pub async fn run(
             inputs.push(queued.request);
         }
 
-        // === Phase B: Run simulation ===
-        let tick_result = {
-            let world = state.read().await;
-            run_tick(&world.snapshot, &inputs, TARGET_TICK_DURATION)
-        };
-
-        // === Phase C: Apply results to world state ===
-        let (tick_number, body_count) = {
+        // === Phase B + C: Run simulation IN PLACE and apply results ===
+        let (tick_number, body_count, input_count) = {
             let mut world = state.write().await;
 
-            // Apply position changes from simulation back to bodies
-            // The simulation returns state_changes, but for Phase 0 we take a simpler approach:
-            // run_tick mutates a clone of bodies internally, so we re-run with the actual bodies.
-            // TODO: In production, apply tick_result.state_changes selectively.
-
-            // For now: re-run simulation directly on the world's bodies
-            // This is a Phase 0 simplification — the simulation should return the final body states.
-            let dt = TARGET_TICK_DURATION;
-            let result = run_tick(&world.snapshot, &inputs, dt);
+            // run_tick_mut mutates snapshot.bodies directly — no clone, no re-apply
+            let result = run_tick_mut(&mut world.snapshot, &inputs, TARGET_TICK_DURATION);
 
             // Update tick counter
             world.snapshot.tick_number = result.next_tick_number;
             world.snapshot.timestamp_ms += (TARGET_TICK_DURATION * 1000.0) as u64;
 
             // Update spatial index for moved bodies
-            // Collect first to avoid borrow conflict
             let moved: Vec<(u64, nexus_core::math::Vec3f64)> = world.snapshot.bodies.iter()
                 .filter(|b| b.is_dynamic())
                 .map(|b| (b.object_id, b.position))
@@ -87,7 +73,7 @@ pub async fn run(
                 world.spatial_index.move_object(id, pos);
             }
 
-            (world.snapshot.tick_number, world.snapshot.bodies.len())
+            (world.snapshot.tick_number, world.snapshot.bodies.len(), inputs.len())
         };
 
         // === Phase D: Broadcast position updates to all clients ===
@@ -140,7 +126,7 @@ pub async fn run(
         if tick_number % 250 == 0 {
             tracing::info!(
                 "Tick {} — {:.2}ms — {} bodies — {} clients — {} actions",
-                tick_number, tick_ms, body_count, client_count, inputs.len(),
+                tick_number, tick_ms, body_count, client_count, input_count,
             );
         }
     }

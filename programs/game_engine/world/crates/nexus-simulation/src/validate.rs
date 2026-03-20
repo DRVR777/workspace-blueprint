@@ -3,6 +3,7 @@
 //! Validates each ChangeRequest against the current world snapshot.
 //! Returns (validated_actions, rejected_requests).
 
+use nexus_core::math::Aabb64;
 use nexus_core::types::{
     WorldStateSnapshot, ChangeRequest, RejectedRequest, ChangeType, PhysicsBody,
 };
@@ -90,6 +91,63 @@ fn validate_one(
             })
         }
     }
+}
+
+/// Validate inputs using body list directly (for run_tick_mut which doesn't have a full snapshot ref).
+pub fn validate_inputs_from_bodies(
+    bodies: &[PhysicsBody],
+    _domain_bounds: &Aabb64,
+    _domain_id: u64,
+    inputs: &[ChangeRequest],
+) -> (Vec<ValidatedAction>, Vec<RejectedRequest>) {
+    let mut validated = Vec::with_capacity(inputs.len());
+    let mut rejected = Vec::new();
+    let mut spawn_count = 0usize;
+
+    for request in inputs {
+        if request.change_type != ChangeType::Create {
+            if !bodies.iter().any(|b| b.object_id == request.object_id) {
+                rejected.push(RejectedRequest {
+                    original_sequence_number: request.sequence_number,
+                    reason_code: 0x01,
+                });
+                continue;
+            }
+        }
+
+        match request.change_type {
+            ChangeType::Move => {
+                let direction = decode_vec3f32(&request.payload);
+                let clamped = direction.clamped_magnitude(MAX_MOVE_FORCE);
+                validated.push(ValidatedAction {
+                    request: request.clone(),
+                    clamped_direction: Some(clamped),
+                });
+            }
+            ChangeType::Create => {
+                if spawn_count >= MAX_SPAWNS_PER_TICK {
+                    rejected.push(RejectedRequest {
+                        original_sequence_number: request.sequence_number,
+                        reason_code: 0x04,
+                    });
+                } else {
+                    spawn_count += 1;
+                    validated.push(ValidatedAction {
+                        request: request.clone(),
+                        clamped_direction: None,
+                    });
+                }
+            }
+            _ => {
+                validated.push(ValidatedAction {
+                    request: request.clone(),
+                    clamped_direction: None,
+                });
+            }
+        }
+    }
+
+    (validated, rejected)
 }
 
 /// Decode a Vec3f32 from raw bytes (little-endian f32 x3).

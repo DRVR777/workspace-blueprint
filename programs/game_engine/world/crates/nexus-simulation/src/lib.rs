@@ -17,54 +17,71 @@ mod diff;
 
 use nexus_core::types::{WorldStateSnapshot, ChangeRequest, TickResult, PhysicsBody};
 
-/// The single public entry point of the simulation layer.
-///
-/// Called once per tick by the node-manager.
-/// Returns everything that changed — the node-manager writes the results.
-///
-/// 5-stage pipeline:
-///   1. Input Validation   → filter bad requests
-///   2. Action Application → apply forces, spawn/destroy
-///   3. Physics Step       → Rapier integration + collision
-///   4. Game Rules         → AI, triggers, boundary check (stub Phase 0)
-///   5. Diff               → compare before/after, emit state changes
+/// Pure-function version: takes immutable snapshot, returns diffs.
+/// Use for replay, testing, and determinism verification.
 pub fn run_tick(
     snapshot: &WorldStateSnapshot,
     inputs: &[ChangeRequest],
     dt: f32,
 ) -> TickResult {
-    // Clone bodies — simulation mutates this working copy, original is for diff
     let mut bodies = snapshot.bodies.clone();
+    run_tick_internal(&snapshot, &mut bodies, inputs, dt)
+}
+
+/// In-place version: mutates snapshot.bodies directly and returns the result.
+/// Use in the tick loop for performance (avoids clone + re-apply).
+pub fn run_tick_mut(
+    snapshot: &mut WorldStateSnapshot,
+    inputs: &[ChangeRequest],
+    dt: f32,
+) -> TickResult {
+    // Save original bodies for diff
+    let original = snapshot.bodies.clone();
+
+    // Run the pipeline on the actual bodies
+    let (validated, rejected) = validate::validate_inputs_from_bodies(&snapshot.bodies, &snapshot.domain_bounds, snapshot.domain_id, inputs);
+    let action_events = actions::apply_actions(&mut snapshot.bodies, &validated);
+    let collision_events = physics::physics_step(&mut snapshot.bodies, &snapshot.physics_config, dt);
+    let rule_events = rules::apply_game_rules(&snapshot.bodies, &snapshot.domain_bounds, &collision_events, dt);
+    let state_changes = diff::compute_diff(&original, &snapshot.bodies, snapshot.timestamp_ms);
+
+    let mut events = Vec::new();
+    events.extend(action_events);
+    events.extend(collision_events);
+    events.extend(rule_events);
+
+    TickResult {
+        next_tick_number: snapshot.tick_number + 1,
+        state_changes,
+        events,
+        rejected_requests: rejected,
+    }
+}
+
+/// Internal pipeline — operates on a mutable body vec.
+fn run_tick_internal(
+    snapshot: &WorldStateSnapshot,
+    bodies: &mut Vec<PhysicsBody>,
+    inputs: &[ChangeRequest],
+    dt: f32,
+) -> TickResult {
+    let original_bodies = bodies.clone();
 
     // Stage 1: Validate inputs
     let (validated, rejected) = validate::validate_inputs(snapshot, inputs);
 
     // Stage 2: Apply validated actions to bodies
-    let action_events = actions::apply_actions(&mut bodies, &validated);
+    let action_events = actions::apply_actions(bodies, &validated);
 
     // Stage 3: Physics step via Rapier
-    let collision_events = physics::physics_step(
-        &mut bodies,
-        &snapshot.physics_config,
-        dt,
-    );
+    let collision_events = physics::physics_step(bodies, &snapshot.physics_config, dt);
 
-    // Stage 4: Game rules (Phase 0: boundary check only, AI/triggers stubbed)
-    let rule_events = rules::apply_game_rules(
-        &mut bodies,
-        &snapshot.domain_bounds,
-        &collision_events,
-        dt,
-    );
+    // Stage 4: Game rules (Phase 0: boundary check only)
+    let rule_events = rules::apply_game_rules(bodies, &snapshot.domain_bounds, &collision_events, dt);
 
-    // Stage 5: Diff — compare original snapshot.bodies to final bodies
-    let state_changes = diff::compute_diff(
-        &snapshot.bodies,
-        &bodies,
-        snapshot.timestamp_ms,
-    );
+    // Stage 5: Diff
+    let state_changes = diff::compute_diff(&original_bodies, bodies, snapshot.timestamp_ms);
 
-    // Combine all events
     let mut events = Vec::new();
     events.extend(action_events);
     events.extend(collision_events);
