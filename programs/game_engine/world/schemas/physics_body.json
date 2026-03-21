@@ -1,0 +1,21 @@
+{
+  "name": "physics_body",
+  "version": "1.0",
+  "description": "A dynamic, static, or kinematic physics body in the simulation. The fundamental unit of world state.",
+  "encoding": "le-binary",
+  "fields": [
+    { "name": "entity_id",    "type": "u32",    "description": "Unique entity ID, never reused" },
+    { "name": "motion_state", "type": "u8",     "description": "0=inertial, 1=accelerating, 2=collision" },
+    { "name": "vehicle_mode", "type": "u8",     "description": "0=on foot, 1=plane/fly" },
+    { "name": "x",            "type": "i16",    "description": "Position X × 32 (1/32m precision)" },
+    { "name": "y",            "type": "i16",    "description": "Position Y × 32" },
+    { "name": "z",            "type": "i16",    "description": "Position Z × 32" },
+    { "name": "vx",           "type": "i16",    "description": "Velocity X × 32 (m/s)" },
+    { "name": "vy",           "type": "i16",    "description": "Velocity Y × 32" },
+    { "name": "vz",           "type": "i16",    "description": "Velocity Z × 32" },
+    { "name": "oqx",          "type": "i16",    "description": "Orientation quaternion X × 32767" },
+    { "name": "oqy",          "type": "i16",    "description": "Orientation quaternion Y × 32767" },
+    { "name": "oqz",          "type": "i16",    "description": "Orientation quaternion Z × 32767" },
+    { "name": "oqw",          "type": "i16",    "description": "Orientation quaternion W × 32767" }
+  ]
+}

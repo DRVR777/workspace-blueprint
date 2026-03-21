@@ -1,0 +1,13 @@
+{
+  "name": "spatial_manifest",
+  "version": "1.0",
+  "description": "World surface descriptor. Describes what is reachable and actionable at a spatial address. The HTTP/0.9 response for space.",
+  "encoding": "le-binary",
+  "fields": [
+    { "name": "world_id",  "type": "string",   "description": "Canonical dworld:// URI of this world" },
+    { "name": "geometry",  "type": "string?",  "description": "URL or IPFS hash of primary 3D geometry asset" },
+    { "name": "surface",   "type": "array",    "description": "Named actions available to any Body that enters" },
+    { "name": "agent",     "type": "string?",  "description": "HTTPS endpoint of the governing AI agent" },
+    { "name": "payment",   "type": "string?",  "description": "Payment address for access or metered actions" }
+  ]
+}

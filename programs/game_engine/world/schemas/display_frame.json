@@ -1,0 +1,14 @@
+{
+  "name": "display_frame",
+  "version": "1.0",
+  "description": "Screen state packet streamed from a computer to nearby clients. Clients within interaction range subscribe; outside range, interest management drops it.",
+  "encoding": "le-binary",
+  "fields": [
+    { "name": "object_id",    "type": "u64",  "description": "Computer entity this frame belongs to" },
+    { "name": "frame_number", "type": "u32",  "description": "Monotonically increasing per computer" },
+    { "name": "width",        "type": "u16",  "description": "Pixel width of framebuffer" },
+    { "name": "height",       "type": "u16",  "description": "Pixel height of framebuffer" },
+    { "name": "encoding",     "type": "u8",   "description": "0=raw-RGBA, 1=terminal-ansi, 2=jpeg, 3=png" },
+    { "name": "data",         "type": "bytes","description": "Framebuffer or terminal output, encoding-dependent" }
+  ]
+}

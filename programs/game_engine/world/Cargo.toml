@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/nexus-core",
+    "crates/nexus-schema",
     "crates/nexus-spatial",
     "crates/nexus-simulation",
     "crates/nexus-node",
@@ -14,8 +15,9 @@ license = "MIT"
 
 [workspace.dependencies]
 # Internal crates
-nexus-core = { path = "crates/nexus-core" }
-nexus-spatial = { path = "crates/nexus-spatial" }
+nexus-core       = { path = "crates/nexus-core" }
+nexus-schema     = { path = "crates/nexus-schema" }
+nexus-spatial    = { path = "crates/nexus-spatial" }
 nexus-simulation = { path = "crates/nexus-simulation" }
 
 # Layer 3: Physics
@@ -26,6 +28,13 @@ tokio = { version = "1", features = ["full"] }
 tokio-tungstenite = "0.24"
 flatbuffers = "24.3"
 prost = "0.13"
+
+# QUIC transport (ADR-TODO: replace WebSocket with Quinn for native clients)
+# quinn = 0.11 uses rustls 0.23 (pki_types API)
+quinn = "0.11"
+rcgen = "0.13"
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
+bytes = "1"
 
 # ECS
 hecs = "0.10"

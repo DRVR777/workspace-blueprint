@@ -1,0 +1,13 @@
+{
+  "name": "computer",
+  "version": "1.0",
+  "description": "A spatial computing object. A computer IS a world — nested inside the parent world with its own dworld:// address, surface, and agent endpoint. Enter it with MSG_ENTER using its URI.",
+  "encoding": "le-binary",
+  "fields": [
+    { "name": "object_id",   "type": "u64",    "description": "Entity ID of this computer body in the parent world" },
+    { "name": "uri",         "type": "uri",    "description": "dworld:// address — send ENTER here to get its SpatialManifest" },
+    { "name": "power",       "type": "bool",   "description": "Whether the computer is powered on" },
+    { "name": "program_uri", "type": "string?","description": "URI of the currently running program (WASM, container, etc.)" },
+    { "name": "screen_hash", "type": "u32",    "description": "FNV32 of current screen state — clients re-request display_frame on change" }
+  ]
+}

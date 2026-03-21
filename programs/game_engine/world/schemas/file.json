@@ -1,0 +1,15 @@
+{
+  "name": "file",
+  "version": "1.0",
+  "description": "A file as a Body. A directory is a Body whose surface includes [list, read, write, execute]. Navigating the filesystem is traversing the world graph.",
+  "encoding": "le-binary",
+  "fields": [
+    { "name": "object_id",  "type": "u64",    "description": "Entity ID of this file body" },
+    { "name": "uri",        "type": "uri",    "description": "dworld:// address of this file" },
+    { "name": "name",       "type": "string", "description": "Filename" },
+    { "name": "mime_type",  "type": "string", "description": "MIME type, e.g. text/plain, application/wasm" },
+    { "name": "size_bytes", "type": "u64",    "description": "File size in bytes" },
+    { "name": "content_id", "type": "string?","description": "IPFS CID or content hash for retrieval" },
+    { "name": "executable", "type": "bool",   "description": "Whether this file can be run as a program" }
+  ]
+}

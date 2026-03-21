@@ -6,6 +6,138 @@
 
 use crate::math::{Vec3f32, Vec3f64, Quat32, Aabb64};
 
+// =============================================================================
+// Packet Header — universal wire header for all NEXUS messages
+// =============================================================================
+
+/// The 20-byte header prepended to every message on the wire.
+///
+/// Layout (little-endian):
+///   [0..2]  msg_type    — identifies the message schema
+///   [2..4]  version     — codec version
+///   [4..8]  sequence    — monotonically increasing counter
+///   [8..12] timestamp   — Unix ms (lower 32 bits)
+///   [12..16] payload_len — byte length of payload that follows
+///   [16..20] schema_id  — identifies the payload schema for self-describing decode
+///
+/// `schema_id` is the field that makes this protocol self-describing.
+/// A receiver that does not recognise `msg_type` can still route the packet
+/// to the correct decoder by `schema_id`, and a receiver that knows neither
+/// can safely skip `payload_len` bytes and move to the next frame.
+/// This is what makes AGENT_TASK, SPATIAL_MANIFEST, KNOWLEDGE_QUERY, and
+/// any future packet type expressible without modifying the physics layer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PacketHeader {
+    pub msg_type:    u16,
+    pub version:     u16,
+    pub sequence:    u32,
+    pub timestamp:   u32,
+    pub payload_len: u32,
+    pub schema_id:   u32,
+}
+
+// =============================================================================
+// SpatialManifest — world surface descriptor
+// =============================================================================
+
+/// Describes what is reachable and actionable at a spatial address.
+///
+/// Sent by the server in response to an ENTER request (MSG_ENTER = 0x0300).
+/// Carried with schema_id = SCHEMA_SPATIAL_MANIFEST (0x00000002).
+///
+/// This is the HTTP/0.9 response for space: "you entered dworld://X, here is what it is."
+/// Every field after `world_id` is optional — a minimal world advertises only its address.
+///
+/// Wire encoding (all strings are u16-length-prefixed UTF-8, 0 = absent):
+///   [2+N] world_id    — dworld:// URI of this world
+///   [2+N] geometry    — URL of 3D asset (IPFS hash, CDN URL) or empty
+///   [1]   surface_count — number of named actions available
+///   for each surface: [2+N] action name
+///   [2+N] agent       — HTTPS endpoint of the agent that governs this world
+///   [2+N] payment     — payment address (Solana pubkey, Ethereum address, etc.)
+#[derive(Debug, Clone, PartialEq)]
+pub struct SpatialManifest {
+    /// The canonical address of this world.
+    pub world_id:  URI,
+    /// URL or IPFS hash of the world's primary 3D geometry asset.
+    pub geometry:  Option<String>,
+    /// Named actions available to any Body that enters this world.
+    /// Examples: "browse", "build", "talk", "trade", "vote"
+    pub surface:   Vec<String>,
+    /// HTTPS endpoint of the AI agent governing this world, if any.
+    pub agent:     Option<String>,
+    /// Payment address for access or actions that have a cost, if any.
+    pub payment:   Option<String>,
+}
+
+impl SpatialManifest {
+    /// Construct the manifest for the default physics world.
+    /// This is what the server sends when a client enters with no specific address.
+    pub fn default_world() -> Self {
+        Self {
+            world_id: "dworld://nexus.local/".to_string(),
+            geometry: None,
+            surface: vec![
+                "move".to_string(),
+                "build".to_string(),
+                "talk".to_string(),
+            ],
+            agent: None,
+            payment: None,
+        }
+    }
+}
+
+// =============================================================================
+// AgentTask — intent packet from an AI agent to the world
+// =============================================================================
+
+/// A task emitted by an AI agent after reading a SpatialManifest.
+///
+/// Sent by the agent client via MSG_AGENT_TASK (0x0400), schema_id = SCHEMA_AGENT_TASK.
+/// Broadcast by the server to all clients in the domain.
+/// Physics loop has no visibility into this type.
+///
+/// Wire encoding:
+///   [8] task_id       (u64 LE)
+///   [8] origin_id     (u64 LE) — entity ID of the agent; 0 = anonymous
+///   [2+N] intent      (u16-len + UTF-8) — natural language statement of intent
+///   [2+N] action      (u16-len + UTF-8) — one action from the surface vocabulary
+///   [1]   context_count
+///   for each: [8] object_id (u64 LE)
+///   [4] deadline_ms   (u32 LE, 0 = no deadline)
+#[derive(Debug, Clone, PartialEq)]
+pub struct AgentTask {
+    /// Monotonically increasing task ID (set by the agent).
+    pub task_id:    u64,
+    /// Entity ID of the agent body that issued this task. 0 = anonymous.
+    pub origin_id:  ObjectId,
+    /// Natural language statement of what the agent intends to do.
+    pub intent:     String,
+    /// The specific surface action selected from the SpatialManifest.
+    pub action:     String,
+    /// Object IDs the agent is acting on or observing (empty = world-scope).
+    pub context:    Vec<ObjectId>,
+    /// Deadline in ms from now. None = best effort, no expiry.
+    pub deadline_ms: Option<u32>,
+}
+
+impl PacketHeader {
+    pub const SIZE: usize = 20;
+
+    /// Bootstrap schema IDs — hardcoded forever. Everything else lives in
+    /// `world/schemas/*.json` and is discovered via nexus-schema's registry.
+    ///
+    /// See `nexus_schema::schema_id(name, version)` to compute any other ID.
+    pub const SCHEMA_UNTYPED:  u32 = 0; // legacy / unknown — decode by msg_type only
+    pub const SCHEMA_REGISTRY: u32 = 1; // schema discovery — MSG_SCHEMA_QUERY/RESPONSE
+}
+
+/// A Universal Resource Identifier — addressing scheme for worlds, agents, and assets.
+/// Format: `dworld://<host>/<path>` for spatial locations,
+///          `https://` for external resources, `ipfs://` for content-addressed assets.
+pub type URI = String;
+
 /// Unique identifier for every object/entity in the world. Never reused.
 pub type ObjectId = u64;
 pub type EntityId = u64;

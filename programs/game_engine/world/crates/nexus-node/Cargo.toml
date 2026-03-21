@@ -5,7 +5,8 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-nexus-core = { workspace = true }
+nexus-core   = { workspace = true }
+nexus-schema = { workspace = true }
 nexus-spatial = { workspace = true }
 nexus-simulation = { workspace = true }
 tokio = { workspace = true }

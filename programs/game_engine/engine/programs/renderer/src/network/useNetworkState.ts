@@ -11,6 +11,7 @@
  *   [4 bytes] sequence_number
  *   [4 bytes] timestamp_ms
  *   [4 bytes] payload_length
+ *   [4 bytes] schema_id      ← self-describing field; 0 = untyped/legacy
  *   [N bytes] payload
  *
  * Message types:
@@ -23,14 +24,20 @@
  *   0x0006 PLAYER_LEFT (S→C)
  */
 
-import type { WorldSnapshot, EntityState } from '../types/world'
+import type { WorldSnapshot, EntityState, SpatialManifest, AgentTask } from '../types/world'
+import {
+  MSG_SCHEMA_QUERY,
+  MSG_SCHEMA_RESPONSE,
+  MSG_SCHEMA_NOT_FOUND,
+  decodeSchemaResponse,
+} from './schema'
 
 // ============================================================================
 // Config
 // ============================================================================
 
 const DEFAULT_SERVER = 'ws://localhost:9001'
-const HEADER_SIZE = 16 // bytes
+const HEADER_SIZE = 20 // bytes (matches PacketHeader in nexus-core/src/types.rs)
 const RECONNECT_DELAY = 2000 // ms
 const MAX_RECONNECT_ATTEMPTS = 10
 
@@ -44,6 +51,11 @@ const MSG_PLAYER_LEFT = 0x0006
 const MSG_HANDSHAKE = 0x0100
 const MSG_HANDSHAKE_RESPONSE = 0x0101
 const MSG_PLAYER_ACTION = 0x0200
+const MSG_ENTER = 0x0300            // C→S: request world manifest
+const MSG_SPATIAL_MANIFEST = 0x0301 // S→C: world surface descriptor
+const MSG_AGENT_TASK = 0x0400       // C→S (agent): intent + selected action
+const MSG_AGENT_BROADCAST = 0x0401  // S→C: agent task broadcast to all clients
+// MSG_SCHEMA_QUERY/RESPONSE/NOT_FOUND imported from schema.ts above
 
 const MOTION_STATE_INERTIAL = 0
 // MOTION_STATE_ACCELERATING = 1 — received but unused until Phase 1 prediction reset
@@ -166,25 +178,27 @@ export function isConnected(): boolean {
 // Wire Protocol — Encode/Decode
 // ============================================================================
 
-function _encodeHeader(type: number, payloadLength: number): ArrayBuffer {
+function _encodeHeader(type: number, payloadLength: number, schemaId = 0): ArrayBuffer {
   const header = new ArrayBuffer(HEADER_SIZE)
   const view = new DataView(header)
-  view.setUint16(0, type, true)           // message_type
-  view.setUint16(2, 1, true)              // message_version
-  view.setUint32(4, _sequenceNumber++, true) // sequence_number
-  view.setUint32(8, Date.now() & 0xFFFFFFFF, true) // timestamp_ms (lower 32 bits)
-  view.setUint32(12, payloadLength, true)  // payload_length
+  view.setUint16(0, type, true)                       // [0..2]  message_type
+  view.setUint16(2, 1, true)                          // [2..4]  message_version
+  view.setUint32(4, _sequenceNumber++, true)          // [4..8]  sequence_number
+  view.setUint32(8, Date.now() & 0xFFFFFFFF, true)    // [8..12] timestamp_ms (lower 32 bits)
+  view.setUint32(12, payloadLength, true)              // [12..16] payload_length
+  view.setUint32(16, schemaId, true)                  // [16..20] schema_id
   return header
 }
 
-function _decodeHeader(data: ArrayBuffer): { type: number; version: number; sequence: number; timestamp: number; payloadLength: number } {
+function _decodeHeader(data: ArrayBuffer): { type: number; version: number; sequence: number; timestamp: number; payloadLength: number; schemaId: number } {
   const view = new DataView(data, 0, HEADER_SIZE)
   return {
-    type: view.getUint16(0, true),
-    version: view.getUint16(2, true),
-    sequence: view.getUint32(4, true),
-    timestamp: view.getUint32(8, true),
+    type:          view.getUint16(0, true),
+    version:       view.getUint16(2, true),
+    sequence:      view.getUint32(4, true),
+    timestamp:     view.getUint32(8, true),
     payloadLength: view.getUint32(12, true),
+    schemaId:      view.getUint32(16, true),
   }
 }
 
@@ -279,6 +293,141 @@ export function sendMoveAction(
 }
 
 // ============================================================================
+// Schema discovery — send MSG_SCHEMA_QUERY for any unknown schema_id
+// ============================================================================
+
+const _queriedSchemas = new Set<number>() // avoid re-querying the same ID
+
+function _sendSchemaQuery(schemaId: number): void {
+  if (_queriedSchemas.has(schemaId)) return
+  _queriedSchemas.add(schemaId)
+  const payload = new ArrayBuffer(4)
+  new DataView(payload).setUint32(0, schemaId, true)
+  _sendBinary(MSG_SCHEMA_QUERY, payload)
+}
+
+// ============================================================================
+// ENTER — request the spatial manifest for a world
+// ============================================================================
+
+/**
+ * Send an ENTER request to the server. Server responds with MSG_SPATIAL_MANIFEST.
+ * @param worldId - dworld:// URI of the world to enter. Empty string = default world.
+ */
+export function sendEnter(worldId = ''): void {
+  const encoded = new TextEncoder().encode(worldId)
+  const payload = new ArrayBuffer(2 + encoded.byteLength)
+  const view = new DataView(payload)
+  view.setUint16(0, encoded.byteLength, true) // [2] uri_len
+  new Uint8Array(payload, 2).set(encoded)      // [N] utf-8 bytes
+  _sendBinary(MSG_ENTER, payload)
+}
+
+// ============================================================================
+// SpatialManifest — callback registry
+// ============================================================================
+
+type ManifestCallback = (manifest: SpatialManifest) => void
+const _manifestCallbacks: ManifestCallback[] = []
+
+/** Register a callback invoked when the server sends a SpatialManifest. */
+export function onSpatialManifest(cb: ManifestCallback): () => void {
+  _manifestCallbacks.push(cb)
+  return () => {
+    const i = _manifestCallbacks.indexOf(cb)
+    if (i !== -1) _manifestCallbacks.splice(i, 1)
+  }
+}
+
+// ============================================================================
+// AgentTask — callback registry + decoder
+// ============================================================================
+
+type AgentTaskCallback = (task: AgentTask) => void
+const _agentTaskCallbacks: AgentTaskCallback[] = []
+
+/** Register a callback invoked when the server broadcasts an AgentTask. */
+export function onAgentTask(cb: AgentTaskCallback): () => void {
+  _agentTaskCallbacks.push(cb)
+  return () => {
+    const i = _agentTaskCallbacks.indexOf(cb)
+    if (i !== -1) _agentTaskCallbacks.splice(i, 1)
+  }
+}
+
+function _decodeAgentTask(payload: ArrayBuffer): AgentTask | null {
+  const bytes = new Uint8Array(payload)
+  const view  = new DataView(payload)
+  if (bytes.length < 16) return null
+
+  // task_id and origin_id are u64 — JS can't represent full u64 but the IDs
+  // we use in practice are small, so reading as two u32s and combining is fine.
+  const taskId   = view.getUint32(0, true) + view.getUint32(4, true) * 0x100000000
+  const originId = view.getUint32(8, true) + view.getUint32(12, true) * 0x100000000
+  let pos = 16
+
+  function readStr(): string | null {
+    if (pos + 2 > bytes.length) return null
+    const len = bytes[pos] | (bytes[pos + 1] << 8)
+    pos += 2
+    if (pos + len > bytes.length) return null
+    const s = new TextDecoder().decode(bytes.slice(pos, pos + len))
+    pos += len
+    return s
+  }
+
+  const intent = readStr()
+  const action = readStr()
+  if (intent === null || action === null) return null
+
+  const contextCount = pos < bytes.length ? bytes[pos++] : 0
+  const context: number[] = []
+  for (let i = 0; i < contextCount; i++) {
+    if (pos + 8 > bytes.length) break
+    context.push(view.getUint32(pos, true))  // lower 32 bits sufficient for entity IDs
+    pos += 8
+  }
+  const deadlineMs = pos + 4 <= bytes.length ? view.getUint32(pos, true) : 0
+
+  return { taskId, originId, intent, action, context, deadlineMs: deadlineMs || null }
+}
+
+function _decodeSpatialManifest(payload: ArrayBuffer): SpatialManifest | null {
+  const bytes = new Uint8Array(payload)
+  let pos = 0
+
+  function readStr(): string | null {
+    if (pos + 2 > bytes.length) return null
+    const len = bytes[pos] | (bytes[pos + 1] << 8)
+    pos += 2
+    if (pos + len > bytes.length) return null
+    const s = new TextDecoder().decode(bytes.slice(pos, pos + len))
+    pos += len
+    return s
+  }
+
+  function readOptStr(): string | null {
+    const s = readStr()
+    return s === '' ? null : s
+  }
+
+  const worldId = readStr()
+  if (worldId === null) return null
+  const geometry = readOptStr()
+  if (pos >= bytes.length) return null
+  const surfaceCount = bytes[pos++]
+  const surface: string[] = []
+  for (let i = 0; i < surfaceCount; i++) {
+    const s = readStr()
+    if (s === null) return null
+    surface.push(s)
+  }
+  const agent = readOptStr()
+  const payment = readOptStr()
+  return { worldId, geometry, surface, agent, payment }
+}
+
+// ============================================================================
 // Message Handler
 // ============================================================================
 
@@ -346,9 +495,49 @@ function _handleBinaryMessage(data: ArrayBuffer): void {
       _handlePlayerLeft(payload)
       break
 
-    default:
-      console.log(`[NEXUS Net] Unknown message type: 0x${header.type.toString(16).padStart(4, '0')} (${data.byteLength} bytes)`)
+    case MSG_AGENT_BROADCAST: {
+      const task = _decodeAgentTask(payload)
+      if (task) {
+        console.log(`[NEXUS Net] AgentTask #${task.taskId} origin=${task.originId} action=${task.action} — ${task.intent}`)
+        _agentTaskCallbacks.forEach(cb => cb(task))
+      }
       break
+    }
+
+    case MSG_SPATIAL_MANIFEST: {
+      const manifest = _decodeSpatialManifest(payload)
+      if (manifest) {
+        console.log(`[NEXUS Net] SpatialManifest: ${manifest.worldId} surface=[${manifest.surface.join(',')}]`)
+        _manifestCallbacks.forEach(cb => cb(manifest))
+      }
+      break
+    }
+
+    case MSG_SCHEMA_RESPONSE: {
+      const result = decodeSchemaResponse(payload)
+      if (result) {
+        console.log(`[NEXUS Net] Schema 0x${result.id.toString(16)} resolved: ${result.descriptor.name}@${result.descriptor.version}`)
+      }
+      break
+    }
+
+    case MSG_SCHEMA_NOT_FOUND:
+      // Server doesn't know this schema — log and move on
+      if (payload.byteLength >= 4) {
+        const id = new DataView(payload).getUint32(0, true)
+        console.warn(`[NEXUS Net] Schema 0x${id.toString(16)} not found in server registry`)
+      }
+      break
+
+    default: {
+      // Unknown message type — check if schema_id is also unknown; if so, query it
+      const sid = header.schemaId
+      if (sid !== 0 && sid !== 1) {
+        _sendSchemaQuery(sid)
+      }
+      console.log(`[NEXUS Net] Unknown message type: 0x${header.type.toString(16).padStart(4, '0')} schema_id=0x${sid.toString(16)} (${data.byteLength} bytes)`)
+      break
+    }
   }
 }
 
@@ -447,6 +636,8 @@ function _handleHandshakeResponse(payload: ArrayBuffer): void {
   const view = new DataView(payload)
   _playerId = view.getFloat64(0, true)
   console.log(`[NEXUS Net] HANDSHAKE accepted — player ID: ${_playerId}`)
+  // Request the world manifest immediately — first non-physics packet
+  sendEnter()
 }
 
 function _handlePositionUpdate(payload: ArrayBuffer): void {
@@ -535,9 +726,17 @@ export function stepWorldState(elapsedSeconds: number): void {
   if (elapsedSeconds <= 0 || elapsedSeconds > 0.1) return // guard against bad deltas
 
   _entities.forEach((entity) => {
-    if (entity.motionState === MOTION_STATE_INERTIAL &&
-        entity.vx !== undefined && entity.vy !== undefined && entity.vz !== undefined) {
+    if (entity.vx === undefined || entity.vy === undefined || entity.vz === undefined) return
+
+    if (entity.motionState === MOTION_STATE_INERTIAL) {
       // Newton's 1st Law: constant velocity until a force acts
+      entity.x += entity.vx * elapsedSeconds
+      entity.y += entity.vy * elapsedSeconds
+      entity.z += entity.vz * elapsedSeconds
+    } else if (entity.vehicleMode !== undefined && entity.vehicleMode !== 0) {
+      // Vehicle entities are always Accelerating (pilot applies continuous thrust),
+      // but their velocity is still a valid dead-reckoning signal between server ticks.
+      // Dead-reckon by current velocity to eliminate observer snap at tick boundaries.
       entity.x += entity.vx * elapsedSeconds
       entity.y += entity.vy * elapsedSeconds
       entity.z += entity.vz * elapsedSeconds

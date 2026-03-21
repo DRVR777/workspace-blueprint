@@ -25,7 +25,8 @@ use tokio_tungstenite::accept_async;
 use tokio_tungstenite::tungstenite::Message;
 use futures_util::{StreamExt, SinkExt};
 
-use nexus_core::types::{ChangeRequest, ChangeType};
+use nexus_core::types::{ChangeRequest, ChangeType, SpatialManifest};
+use nexus_schema::SchemaRegistry;
 
 use crate::{WorldState, QueuedAction};
 use crate::clients::ClientManager;
@@ -37,6 +38,7 @@ pub async fn run(
     state: Arc<RwLock<WorldState>>,
     action_tx: mpsc::UnboundedSender<QueuedAction>,
     client_manager: Arc<RwLock<ClientManager>>,
+    schema_registry: Arc<SchemaRegistry>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     let listener = TcpListener::bind(addr).await?;
@@ -50,9 +52,10 @@ pub async fn run(
         let action_tx = action_tx.clone();
         let client_manager = client_manager.clone();
 
+        let schema_registry = schema_registry.clone();
         tokio::spawn(async move {
             if let Err(e) = handle_connection(
-                stream, peer_addr, state, action_tx, client_manager,
+                stream, peer_addr, state, action_tx, client_manager, schema_registry,
             ).await {
                 tracing::error!("Connection {} error: {}", peer_addr, e);
             }
@@ -66,6 +69,7 @@ async fn handle_connection(
     state: Arc<RwLock<WorldState>>,
     action_tx: mpsc::UnboundedSender<QueuedAction>,
     client_manager: Arc<RwLock<ClientManager>>,
+    schema_registry: Arc<SchemaRegistry>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let ws_stream = accept_async(stream).await?;
     let (mut ws_write, mut ws_read) = ws_stream.split();
@@ -183,6 +187,46 @@ async fn handle_connection(
                                         request,
                                     });
                                 }
+                            }
+                            Some((protocol::MSG_SCHEMA_QUERY, payload)) => {
+                                // Client received an unknown schema_id and is asking what it means.
+                                // Respond with the JSON descriptor from the registry.
+                                // This is the entire schema discovery protocol — one request, one response.
+                                if let Some(queried_id) = protocol::decode_schema_query(payload) {
+                                    let response = protocol::encode_schema_response(queried_id, &schema_registry);
+                                    tracing::debug!("{} SCHEMA_QUERY 0x{:08x}", peer_addr, queried_id);
+                                    ws_write.send(Message::Binary(response)).await?;
+                                }
+                            }
+                            Some((protocol::MSG_AGENT_TASK, payload)) => {
+                                // An AI agent has sent a task. Decode it and broadcast
+                                // to all clients as MSG_AGENT_BROADCAST.
+                                // Physics loop is not involved — this bypasses it entirely.
+                                if let Some(task) = protocol::decode_agent_task(payload) {
+                                    tracing::info!(
+                                        "{} AGENT_TASK {} intent={:?} action={:?}",
+                                        peer_addr, task.task_id, task.intent, task.action
+                                    );
+                                    let broadcast = protocol::encode_agent_broadcast(&task);
+                                    let cm = client_manager.read().await;
+                                    cm.send_to_all(broadcast);
+                                }
+                            }
+                            Some((protocol::MSG_ENTER, payload)) => {
+                                // Client is requesting the spatial manifest for a world.
+                                // Decode the URI they want; default world if empty or unrecognised.
+                                let world_id = protocol::decode_enter(payload)
+                                    .unwrap_or_default();
+                                let manifest = if world_id.is_empty() || world_id == "dworld://nexus.local/" {
+                                    SpatialManifest::default_world()
+                                } else {
+                                    // Unknown address — return default world manifest.
+                                    // Future: look up world registry.
+                                    SpatialManifest::default_world()
+                                };
+                                let response = protocol::encode_spatial_manifest(&manifest);
+                                tracing::info!("{} ENTER {:?} → manifest ({}B)", peer_addr, world_id, response.len());
+                                ws_write.send(Message::Binary(response)).await?;
                             }
                             _ => {
                                 // Unknown or unparseable message — ignore

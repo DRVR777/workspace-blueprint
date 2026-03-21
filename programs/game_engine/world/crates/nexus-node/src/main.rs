@@ -17,6 +17,7 @@ use nexus_core::config::WorldPhysicsConfig;
 use nexus_core::types::{WorldStateSnapshot, PhysicsBody, ShapeParams, ChangeRequest};
 use nexus_core::constants::{SECTOR_SIZE, QUIC_PORT};
 use nexus_spatial::SpatialIndex;
+use nexus_schema::SchemaRegistry;
 
 use std::sync::Arc;
 use tokio::sync::{RwLock, mpsc};
@@ -78,6 +79,14 @@ async fn main() {
 
     tracing::info!("NEXUS node starting on port {}", port);
 
+    // Load schema registry from world/schemas/ (env override: NEXUS_SCHEMAS_DIR)
+    let schemas_dir = std::env::var("NEXUS_SCHEMAS_DIR")
+        .unwrap_or_else(|_| "schemas".to_string());
+    let schema_registry = Arc::new(
+        SchemaRegistry::load_from_dir(std::path::Path::new(&schemas_dir))
+    );
+    tracing::info!("Schema registry: {} schemas loaded from {}", schema_registry.schema_count(), schemas_dir);
+
     // Phase 0: hard-coded domain (1000³ units)
     let domain = Aabb64::new(Vec3f64::ZERO, Vec3f64::new(SECTOR_SIZE, SECTOR_SIZE, SECTOR_SIZE));
 
@@ -117,6 +126,7 @@ async fn main() {
 
     let server_state = world_state.clone();
     let server_clients = client_manager.clone();
+    let server_schemas = schema_registry.clone();
 
     let quic_state = world_state.clone();
     let quic_action_tx = action_tx.clone();
@@ -126,7 +136,7 @@ async fn main() {
         result = tick_loop::run(tick_state, action_rx, tick_clients) => {
             tracing::error!("Tick loop exited: {:?}", result);
         }
-        result = server::run(port, server_state, action_tx, server_clients) => {
+        result = server::run(port, server_state, action_tx, server_clients, server_schemas) => {
             tracing::error!("WebSocket server exited: {:?}", result);
         }
         result = quic_server::run(QUIC_PORT, quic_state, quic_action_tx, quic_clients) => {

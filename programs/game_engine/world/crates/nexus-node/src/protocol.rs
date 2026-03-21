@@ -1,11 +1,12 @@
 //! Wire protocol — encode/decode binary messages.
 //!
-//! Header (16 bytes):
-//!   [2] message_type   (u16 LE)
-//!   [2] message_version (u16 LE)
-//!   [4] sequence_number (u32 LE)
-//!   [4] timestamp_ms    (u32 LE)
-//!   [4] payload_length  (u32 LE)
+//! Header (20 bytes, matches PacketHeader in nexus-core/src/types.rs):
+//!   [0..2]   message_type   (u16 LE)
+//!   [2..4]   message_version (u16 LE)
+//!   [4..8]   sequence_number (u32 LE)
+//!   [8..12]  timestamp_ms    (u32 LE)
+//!   [12..16] payload_length  (u32 LE)
+//!   [16..20] schema_id       (u32 LE) — identifies payload schema; 0 = untyped/legacy
 //!
 //! Message types (from shared/schemas/README.md):
 //!   0x0001 ENTITY_POSITION_UPDATE (S→C)
@@ -16,9 +17,10 @@
 //!   0x0101 HANDSHAKE_RESPONSE (S→C)
 //!   0x0200 PLAYER_ACTION (C→S)
 
-use nexus_core::types::PhysicsBody;
+use nexus_core::types::{PhysicsBody, PacketHeader, SpatialManifest, AgentTask};
+use nexus_schema::{schema_id, SchemaRegistry};
 
-pub const HEADER_SIZE: usize = 16;
+pub const HEADER_SIZE: usize = PacketHeader::SIZE; // 20
 
 // Message type codes
 pub const MSG_ENTITY_POSITION_UPDATE: u16 = 0x0001; // Legacy: kept for compat
@@ -30,6 +32,20 @@ pub const MSG_PLAYER_LEFT: u16 = 0x0006;
 pub const MSG_HANDSHAKE: u16 = 0x0100;
 pub const MSG_HANDSHAKE_RESPONSE: u16 = 0x0101;
 pub const MSG_PLAYER_ACTION: u16 = 0x0200;
+pub const MSG_ENTER: u16 = 0x0300;             // C→S: client requests world manifest
+pub const MSG_SPATIAL_MANIFEST: u16 = 0x0301;  // S→C: world surface descriptor
+pub const MSG_AGENT_TASK: u16 = 0x0400;        // C→S (agent): intent + selected action
+pub const MSG_AGENT_BROADCAST: u16 = 0x0401;   // S→C (all): agent task broadcast to domain
+// Re-export schema discovery message types so callers use protocol::MSG_SCHEMA_*
+pub use nexus_schema::{MSG_SCHEMA_QUERY, MSG_SCHEMA_RESPONSE, MSG_SCHEMA_NOT_FOUND};
+
+// Computed schema IDs — stable content-addressed hashes, not hardcoded constants.
+// These are evaluated once and inlined by the compiler. Adding a new schema type
+// requires only a new JSON file in world/schemas/ — no changes here.
+#[allow(dead_code)] // used when physics delta encoding tags schema_id (next pass)
+pub fn sid_physics_body()     -> u32 { schema_id("physics_body",     "1.0") }
+pub fn sid_spatial_manifest() -> u32 { schema_id("spatial_manifest", "1.0") }
+pub fn sid_agent_task()       -> u32 { schema_id("agent_task",       "1.0") }
 
 // Sequence counter (global, atomic)
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -39,20 +55,38 @@ fn next_sequence() -> u32 {
     SEQUENCE.fetch_add(1, Ordering::Relaxed)
 }
 
-/// Encode a message header + payload into a binary frame.
-fn encode_message(msg_type: u16, payload: &[u8]) -> Vec<u8> {
+/// Encode a message header + payload, with an explicit schema_id.
+fn encode_message_with_schema(msg_type: u16, payload: &[u8], schema_id: u32) -> Vec<u8> {
     let mut buf = Vec::with_capacity(HEADER_SIZE + payload.len());
-
-    // Header
-    buf.extend_from_slice(&msg_type.to_le_bytes());           // message_type
-    buf.extend_from_slice(&1u16.to_le_bytes());               // message_version
-    buf.extend_from_slice(&next_sequence().to_le_bytes());    // sequence_number
+    buf.extend_from_slice(&msg_type.to_le_bytes());
+    buf.extend_from_slice(&1u16.to_le_bytes());
+    buf.extend_from_slice(&next_sequence().to_le_bytes());
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u32;
-    buf.extend_from_slice(&ts.to_le_bytes());                 // timestamp_ms
-    buf.extend_from_slice(&(payload.len() as u32).to_le_bytes()); // payload_length
+    buf.extend_from_slice(&ts.to_le_bytes());
+    buf.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+    buf.extend_from_slice(&schema_id.to_le_bytes());
+    buf.extend_from_slice(payload);
+    buf
+}
+
+/// Encode a message header + payload into a binary frame.
+fn encode_message(msg_type: u16, payload: &[u8]) -> Vec<u8> {
+    let mut buf = Vec::with_capacity(HEADER_SIZE + payload.len());
+
+    // Header (20 bytes — matches PacketHeader layout)
+    buf.extend_from_slice(&msg_type.to_le_bytes());                // [0..2]  message_type
+    buf.extend_from_slice(&1u16.to_le_bytes());                    // [2..4]  message_version
+    buf.extend_from_slice(&next_sequence().to_le_bytes());         // [4..8]  sequence_number
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u32;
+    buf.extend_from_slice(&ts.to_le_bytes());                      // [8..12] timestamp_ms
+    buf.extend_from_slice(&(payload.len() as u32).to_le_bytes());  // [12..16] payload_length
+    buf.extend_from_slice(&PacketHeader::SCHEMA_UNTYPED.to_le_bytes()); // [16..20] schema_id
 
     // Payload
     buf.extend_from_slice(payload);
@@ -263,4 +297,167 @@ pub fn decode_player_action(payload: &[u8]) -> Option<(f32, f32, f32, u32, u8, f
         (0.0f32, 0.0f32, 0.0f32)
     };
     Some((x, y, z, seq, vehicle_mode, qx, qy, qz, qw, pos_x, pos_y, pos_z))
+}
+
+/// Decode MSG_ENTER payload. Returns the world URI the client wants to enter.
+/// Payload: [2] uri_len + [N] utf8 bytes. Empty URI means "default world".
+pub fn decode_enter(payload: &[u8]) -> Option<String> {
+    if payload.len() < 2 {
+        return Some(String::new()); // empty = default world
+    }
+    let len = u16::from_le_bytes([payload[0], payload[1]]) as usize;
+    if payload.len() < 2 + len {
+        return None;
+    }
+    String::from_utf8(payload[2..2 + len].to_vec()).ok()
+}
+
+// ============================================================================
+// SpatialManifest encode/decode
+// ============================================================================
+
+fn push_str(buf: &mut Vec<u8>, s: &str) {
+    buf.extend_from_slice(&(s.len() as u16).to_le_bytes());
+    buf.extend_from_slice(s.as_bytes());
+}
+
+fn push_opt_str(buf: &mut Vec<u8>, s: &Option<String>) {
+    match s {
+        Some(v) => push_str(buf, v),
+        None    => buf.extend_from_slice(&0u16.to_le_bytes()),
+    }
+}
+
+/// Encode MSG_SPATIAL_MANIFEST with schema_id = SCHEMA_SPATIAL_MANIFEST.
+///
+/// Wire encoding:
+///   [2+N] world_id (u16-len + UTF-8)
+///   [2+N] geometry (u16-len + UTF-8; 0 = absent)
+///   [1]   surface_count
+///   for each surface: [2+N] name (u16-len + UTF-8)
+///   [2+N] agent   (u16-len + UTF-8; 0 = absent)
+///   [2+N] payment (u16-len + UTF-8; 0 = absent)
+pub fn encode_spatial_manifest(m: &SpatialManifest) -> Vec<u8> {
+    let mut payload = Vec::new();
+    push_str(&mut payload, &m.world_id);
+    push_opt_str(&mut payload, &m.geometry);
+    payload.push(m.surface.len().min(255) as u8);
+    for s in &m.surface {
+        push_str(&mut payload, s);
+    }
+    push_opt_str(&mut payload, &m.agent);
+    push_opt_str(&mut payload, &m.payment);
+
+    encode_message_with_schema(MSG_SPATIAL_MANIFEST, &payload, sid_spatial_manifest())
+}
+
+#[allow(dead_code)] // used by agent runtime (Build 2) and tests
+fn read_str<'a>(data: &'a [u8], pos: &mut usize) -> Option<String> {
+    if *pos + 2 > data.len() { return None; }
+    let len = u16::from_le_bytes([data[*pos], data[*pos + 1]]) as usize;
+    *pos += 2;
+    if *pos + len > data.len() { return None; }
+    let s = String::from_utf8(data[*pos..*pos + len].to_vec()).ok()?;
+    *pos += len;
+    Some(s)
+}
+
+#[allow(dead_code)]
+fn read_opt_str(data: &[u8], pos: &mut usize) -> Option<Option<String>> {
+    let s = read_str(data, pos)?;
+    Some(if s.is_empty() { None } else { Some(s) })
+}
+
+// ============================================================================
+// AgentTask encode/decode
+// ============================================================================
+
+/// Encode MSG_AGENT_BROADCAST — the server's outbound broadcast of an agent task.
+/// Uses schema_id = SCHEMA_AGENT_TASK so any receiver can identify it without knowing msg_type.
+pub fn encode_agent_broadcast(task: &AgentTask) -> Vec<u8> {
+    let mut payload = Vec::new();
+    payload.extend_from_slice(&task.task_id.to_le_bytes());
+    payload.extend_from_slice(&task.origin_id.to_le_bytes());
+    push_str(&mut payload, &task.intent);
+    push_str(&mut payload, &task.action);
+    payload.push(task.context.len().min(255) as u8);
+    for &id in &task.context {
+        payload.extend_from_slice(&id.to_le_bytes());
+    }
+    payload.extend_from_slice(&task.deadline_ms.unwrap_or(0).to_le_bytes());
+    encode_message_with_schema(MSG_AGENT_BROADCAST, &payload, sid_agent_task())
+}
+
+/// Decode an incoming MSG_AGENT_TASK payload sent by an agent client.
+/// Returns None if the payload is malformed.
+pub fn decode_agent_task(payload: &[u8]) -> Option<AgentTask> {
+    if payload.len() < 16 { return None; }
+    let task_id   = u64::from_le_bytes(payload[0..8].try_into().ok()?);
+    let origin_id = u64::from_le_bytes(payload[8..16].try_into().ok()?);
+    let mut pos = 16;
+    let intent = read_str(payload, &mut pos)?;
+    let action = read_str(payload, &mut pos)?;
+    if pos >= payload.len() { return None; }
+    let ctx_count = payload[pos] as usize;
+    pos += 1;
+    let mut context = Vec::with_capacity(ctx_count);
+    for _ in 0..ctx_count {
+        if pos + 8 > payload.len() { return None; }
+        let id = u64::from_le_bytes(payload[pos..pos + 8].try_into().ok()?);
+        context.push(id);
+        pos += 8;
+    }
+    let deadline_ms = if pos + 4 <= payload.len() {
+        let ms = u32::from_le_bytes(payload[pos..pos + 4].try_into().ok()?);
+        if ms == 0 { None } else { Some(ms) }
+    } else {
+        None
+    };
+    Some(AgentTask { task_id, origin_id, intent, action, context, deadline_ms })
+}
+
+// ============================================================================
+// Schema discovery — MSG_SCHEMA_QUERY / MSG_SCHEMA_RESPONSE
+// ============================================================================
+
+/// Decode a MSG_SCHEMA_QUERY payload. Returns the queried schema_id.
+/// Payload: [4] schema_id (u32 LE).
+pub fn decode_schema_query(payload: &[u8]) -> Option<u32> {
+    if payload.len() < 4 { return None; }
+    Some(u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]))
+}
+
+/// Encode MSG_SCHEMA_RESPONSE: [4] schema_id + [N] JSON descriptor bytes.
+pub fn encode_schema_response(queried_id: u32, registry: &SchemaRegistry) -> Vec<u8> {
+    match registry.to_json_bytes(queried_id) {
+        Some(json) => {
+            let mut payload = Vec::with_capacity(4 + json.len());
+            payload.extend_from_slice(&queried_id.to_le_bytes());
+            payload.extend_from_slice(&json);
+            encode_message_with_schema(MSG_SCHEMA_RESPONSE, &payload, PacketHeader::SCHEMA_REGISTRY)
+        }
+        None => {
+            // Schema not in registry — send NOT_FOUND with just the queried ID
+            let payload = queried_id.to_le_bytes().to_vec();
+            encode_message_with_schema(MSG_SCHEMA_NOT_FOUND, &payload, PacketHeader::SCHEMA_REGISTRY)
+        }
+    }
+}
+
+/// Decode a SpatialManifest from a MSG_SPATIAL_MANIFEST payload.
+#[allow(dead_code)]
+pub fn decode_spatial_manifest(payload: &[u8]) -> Option<SpatialManifest> {
+    let mut pos = 0;
+    let world_id = read_str(payload, &mut pos)?;
+    let geometry = read_opt_str(payload, &mut pos)?;
+    if pos >= payload.len() { return None; }
+    let surface_count = payload[pos] as usize;
+    pos += 1;
+    let mut surface = Vec::with_capacity(surface_count);
+    for _ in 0..surface_count {
+        surface.push(read_str(payload, &mut pos)?);
+    }
+    let agent   = read_opt_str(payload, &mut pos)?;
+    let payment = read_opt_str(payload, &mut pos)?;
+    Some(SpatialManifest { world_id, geometry, surface, agent, payment })
 }

@@ -63,11 +63,13 @@ export function useWorldState(): React.MutableRefObject<WorldSnapshot | null> {
     }
   }, [])
 
-  useFrame(({ clock }) => {
+  useFrame(({ clock }, delta) => {
     if (USE_NETWORK) {
-      networkStep(clock.elapsedTime)
+      // Pass frame delta (not cumulative time) — stepWorldState advances positions by vel*dt
+      networkStep(delta)
       snapshotRef.current = networkSnapshot()
     } else {
+      // Stub uses cumulative time for orbit angle math
       stubStep(clock.elapsedTime)
       snapshotRef.current = stubSnapshot()
     }

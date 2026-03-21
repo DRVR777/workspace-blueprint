@@ -1,0 +1,14 @@
+{
+  "name": "agent_task",
+  "version": "1.0",
+  "description": "Intent packet emitted by an AI agent after reading a SpatialManifest. Broadcast to all clients in the domain. Physics layer has no visibility into this type.",
+  "encoding": "le-binary",
+  "fields": [
+    { "name": "task_id",     "type": "u64",    "description": "Monotonically increasing task ID set by the agent" },
+    { "name": "origin_id",   "type": "u64",    "description": "Entity ID of the agent body; 0 = anonymous" },
+    { "name": "intent",      "type": "string", "description": "Natural language statement of what the agent will do and why" },
+    { "name": "action",      "type": "string", "description": "One action from the world surface vocabulary" },
+    { "name": "context",     "type": "array",  "description": "Object IDs the agent is acting on (u64 each); empty = world-scope" },
+    { "name": "deadline_ms", "type": "u32",    "description": "Deadline in ms from now; 0 = no deadline" }
+  ]
+}

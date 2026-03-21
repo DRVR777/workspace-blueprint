@@ -19,13 +19,29 @@ This folder contains the canonical schema files for all network messages. The sc
 Every message has a common wire header prepended by the transport layer (not part of the schema payload). See PRD.md §8.2:
 
 ```
-[2 bytes] message_type
-[2 bytes] message_version
-[4 bytes] sequence_number
-[4 bytes] timestamp_ms
-[4 bytes] payload_length
-[N bytes] payload     ← this is what each schema file defines
+[2 bytes] message_type     — identifies the message
+[2 bytes] message_version  — codec version
+[4 bytes] sequence_number  — monotonically increasing counter
+[4 bytes] timestamp_ms     — Unix ms (lower 32 bits)
+[4 bytes] payload_length   — byte length of payload
+[4 bytes] schema_id        — identifies the payload schema (0 = untyped/legacy)
+[N bytes] payload          ← this is what each schema file defines
 ```
+
+`schema_id` is the self-describing field. A receiver that does not recognise `message_type`
+can still route the packet to the correct decoder by `schema_id`, and a receiver that knows
+neither can skip `payload_length` bytes and advance to the next frame. This enables future
+packet types (AGENT_TASK, SPATIAL_MANIFEST, KNOWLEDGE_QUERY) without modifying the physics layer.
+
+Well-known schema IDs (defined in `nexus-core/src/types.rs` `PacketHeader`):
+
+| schema_id  | Meaning |
+|------------|---------|
+| 0x00000000 | Untyped / legacy — decode by `message_type` only |
+| 0x00000001 | `SCHEMA_PHYSICS_BODY` |
+| 0x00000002 | `SCHEMA_SPATIAL_MANIFEST` |
+| 0x00000003 | `SCHEMA_AGENT_TASK` |
+| 0x00000004 | `SCHEMA_KNOWLEDGE_QUERY` |
 
 Schema files define the **payload** only.
 
