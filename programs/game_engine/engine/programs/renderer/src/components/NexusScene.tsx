@@ -70,16 +70,15 @@ export function NexusScene() {
   }, [camera])
 
   // Update active vehicle each frame.
-  // Priority 100 = runs after all default-priority hooks (PlayerController,
-  // EntityField, useWorldState) so the plane's camera writes are never
-  // overwritten by something running later in the same frame.
+  // No priority (default 0) — R3F auto-renders only when all useFrame hooks
+  // use default priority. Non-zero priority disables auto-render entirely.
   useFrame((_, delta) => {
     updateActiveVehicle(
       camera as THREE.PerspectiveCamera,
       scene,
       delta,
     )
-  }, 100)
+  })
 
   return (
     <>
