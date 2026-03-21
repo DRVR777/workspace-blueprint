@@ -84,6 +84,19 @@ export class PlaneVehicle implements VehicleController {
   private _stickX = 0
   private _stickY = 0
 
+  // Hoisted temporaries — zero allocations in hot path
+  private _tmpAxis  = new THREE.Vector3()
+  private _tmpQ     = new THREE.Quaternion()
+  private _planeRight = new THREE.Vector3()
+  private _noseDir  = new THREE.Vector3()
+  private _planeUp  = new THREE.Vector3()
+  private _fwd      = new THREE.Vector3()
+  private _up       = new THREE.Vector3()
+  private _camTarget  = new THREE.Vector3()
+  private _lookTarget = new THREE.Vector3()
+  private _lookM    = new THREE.Matrix4()
+  private _lookQ    = new THREE.Quaternion()
+
   // Meshes
   private placeholderPlane: THREE.Group | null = null
   private planeModel: THREE.Group | null = null
@@ -188,8 +201,8 @@ export class PlaneVehicle implements VehicleController {
   }
 
   getVelocity(): THREE.Vector3 {
-    if (!this.planeMode) return new THREE.Vector3()
-    return new THREE.Vector3(0, 0, -1)
+    if (!this.planeMode) return this._noseDir.set(0, 0, 0)
+    return this._noseDir.set(0, 0, -1)
       .applyQuaternion(this.planeOrientation)
       .multiplyScalar(this.planeSpeed)
   }
@@ -280,10 +293,10 @@ export class PlaneVehicle implements VehicleController {
           pitchApplied = -dy * this.pitchSpeed   // mouse up → nose up
           rollApplied  = -dx * this.rollSpeed    // mouse right → bank right
 
-          const axis = new THREE.Vector3(pitchApplied, 0, rollApplied).normalize()
+          this._tmpAxis.set(pitchApplied, 0, rollApplied).normalize()
           const angle = Math.sqrt(pitchApplied * pitchApplied + rollApplied * rollApplied)
-          const q = new THREE.Quaternion().setFromAxisAngle(axis, angle)
-          this.planeOrientation.multiply(q)
+          this._tmpQ.setFromAxisAngle(this._tmpAxis, angle)
+          this.planeOrientation.multiply(this._tmpQ)
 
           if (mag > 3) {
             if (Math.abs(dy) > Math.abs(dx)) {
@@ -306,36 +319,32 @@ export class PlaneVehicle implements VehicleController {
       // 3. WASD pitch/roll — 0.015 rad/frame, local space
       const wasdRate = 0.015
       if (this.keys['KeyW']) {
-        this.planeOrientation.multiply(
-          new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0),  wasdRate)
-        )
+        this._tmpQ.setFromAxisAngle(this._tmpAxis.set(1, 0, 0),  wasdRate)
+        this.planeOrientation.multiply(this._tmpQ)
       }
       if (this.keys['KeyS']) {
-        this.planeOrientation.multiply(
-          new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -wasdRate)
-        )
+        this._tmpQ.setFromAxisAngle(this._tmpAxis.set(1, 0, 0), -wasdRate)
+        this.planeOrientation.multiply(this._tmpQ)
       }
       if (this.keys['KeyA']) {
-        this.planeOrientation.multiply(
-          new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1),  wasdRate)
-        )
+        this._tmpQ.setFromAxisAngle(this._tmpAxis.set(0, 0, 1),  wasdRate)
+        this.planeOrientation.multiply(this._tmpQ)
       }
       if (this.keys['KeyD']) {
-        this.planeOrientation.multiply(
-          new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -wasdRate)
-        )
+        this._tmpQ.setFromAxisAngle(this._tmpAxis.set(0, 0, 1), -wasdRate)
+        this.planeOrientation.multiply(this._tmpQ)
       }
 
       // 4. BANK-TO-TURN — local space yaw, NEGATIVE sign, dead zone 0.09
-      const planeRight = new THREE.Vector3(1, 0, 0).applyQuaternion(this.planeOrientation)
-      const bankAmount = Math.asin(THREE.MathUtils.clamp(-planeRight.y, -1, 1))
+      this._planeRight.set(1, 0, 0).applyQuaternion(this.planeOrientation)
+      const bankAmount = Math.asin(THREE.MathUtils.clamp(-this._planeRight.y, -1, 1))
       const effectiveBank = Math.abs(bankAmount) > 0.09 ? bankAmount : 0
       const bankYaw = -effectiveBank * this.bankTurnRate * (this.planeSpeed / this.maxSpeed)
 
       if (Math.abs(bankYaw) > 0.00001) {
-        const yawQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), bankYaw)
+        this._tmpQ.setFromAxisAngle(this._tmpAxis.set(0, 1, 0), bankYaw)
         // multiply() = LOCAL space — must NOT be premultiply() (world space couples into pitch)
-        this.planeOrientation.multiply(yawQ)
+        this.planeOrientation.multiply(this._tmpQ)
       }
 
       // 5. AIR ROLL (Q/E — 180° barrel roll)
@@ -350,20 +359,19 @@ export class PlaneVehicle implements VehicleController {
           this.airRollTarget = 0
           this.airRolling = false
         }
-        this.planeOrientation.multiply(
-          new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), airRollAngle)
-        )
+        this._tmpQ.setFromAxisAngle(this._tmpAxis.set(0, 0, 1), airRollAngle)
+        this.planeOrientation.multiply(this._tmpQ)
       }
 
       // 6. NORMALIZE
       this.planeOrientation.normalize()
 
       // 7. MOVEMENT along nose direction + gravity/lift
-      const noseDir = new THREE.Vector3(0, 0, -1).applyQuaternion(this.planeOrientation)
-      this.planePosition.addScaledVector(noseDir, this.planeSpeed)
+      this._noseDir.set(0, 0, -1).applyQuaternion(this.planeOrientation)
+      this.planePosition.addScaledVector(this._noseDir, this.planeSpeed)
 
-      const planeUp = new THREE.Vector3(0, 1, 0).applyQuaternion(this.planeOrientation)
-      const liftUp = Math.max(0, planeUp.y)
+      this._planeUp.set(0, 1, 0).applyQuaternion(this.planeOrientation)
+      const liftUp = Math.max(0, this._planeUp.y)
       const netGravity = this.gravity * (1.0 - liftUp * Math.min(this.planeSpeed / this.minSpeed, 1.0))
       this.planePosition.y -= netGravity
 
@@ -380,20 +388,21 @@ export class PlaneVehicle implements VehicleController {
     plane.position.copy(this.planePosition)
 
     // 9. CAMERA — follows behind/above, blends plane up with world up
-    const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(this.planeOrientation)
-    const up  = new THREE.Vector3(0, 1, 0).applyQuaternion(this.planeOrientation)
+    this._fwd.set(0, 0, -1).applyQuaternion(this.planeOrientation)
+    this._up.set(0, 1, 0).applyQuaternion(this.planeOrientation)
 
-    const camTarget = this.planePosition.clone()
-      .addScaledVector(fwd, -this.cameraOffset.z)
-      .addScaledVector(up,   this.cameraOffset.y)
-    camera.position.lerp(camTarget, this.cameraLerpSpeed)
+    this._camTarget.copy(this.planePosition)
+      .addScaledVector(this._fwd, -this.cameraOffset.z)
+      .addScaledVector(this._up,   this.cameraOffset.y)
+    camera.position.lerp(this._camTarget, this.cameraLerpSpeed)
 
     const t = this.cameraTilt
-    const camUp = up.clone().multiplyScalar(t).add(new THREE.Vector3(0, 1 - t, 0)).normalize()
-    const lookTarget = this.planePosition.clone().addScaledVector(fwd, 10)
-    const lookM = new THREE.Matrix4().lookAt(camera.position, lookTarget, camUp)
-    const lookQ = new THREE.Quaternion().setFromRotationMatrix(lookM)
-    camera.quaternion.slerp(lookQ, 0.08)
+    // camUp = blend of plane up and world up — reuse _up in place
+    this._up.multiplyScalar(t).add(this._tmpAxis.set(0, 1 - t, 0)).normalize()
+    this._lookTarget.copy(this.planePosition).addScaledVector(this._fwd, 10)
+    this._lookM.lookAt(camera.position, this._lookTarget, this._up)
+    this._lookQ.setFromRotationMatrix(this._lookM)
+    camera.quaternion.slerp(this._lookQ, 0.08)
     this.euler.setFromQuaternion(camera.quaternion, 'YXZ')
 
     // Update reticle position
@@ -462,10 +471,10 @@ export class PlaneVehicle implements VehicleController {
 
   private _updateDebugHUD(mouseX: number, mouseY: number, pitchApplied: number, rollApplied: number): void {
     if (!this.debugHUD || !this.debugLog) return
-    const noseDir  = new THREE.Vector3(0, 0, -1).applyQuaternion(this.planeOrientation)
-    const planeRt  = new THREE.Vector3(1, 0, 0).applyQuaternion(this.planeOrientation)
-    const pitch    = Math.asin(THREE.MathUtils.clamp(noseDir.y, -1, 1)) * 180 / Math.PI
-    const bank     = Math.asin(THREE.MathUtils.clamp(-planeRt.y, -1, 1)) * 180 / Math.PI
+    this._noseDir.set(0, 0, -1).applyQuaternion(this.planeOrientation)
+    this._planeRight.set(1, 0, 0).applyQuaternion(this.planeOrientation)
+    const pitch    = Math.asin(THREE.MathUtils.clamp(this._noseDir.y, -1, 1)) * 180 / Math.PI
+    const bank     = Math.asin(THREE.MathUtils.clamp(-this._planeRight.y, -1, 1)) * 180 / Math.PI
 
     if (!this._statsEl) {
       this._statsEl = document.createElement('div')
