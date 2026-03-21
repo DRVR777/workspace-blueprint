@@ -289,7 +289,7 @@ export class PlaneVehicle implements VehicleController {
       const bankAmount = Math.asin(THREE.MathUtils.clamp(-planeRight.y, -1, 1))
       const bankYaw    = bankAmount * this.bankTurnRate * (this.planeSpeed / this.maxSpeed)
       if (Math.abs(bankYaw) > 0.00001) {
-        this.planeOrientation.premultiply(
+        this.planeOrientation.multiply(
           new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), bankYaw)
         )
       }
