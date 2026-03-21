@@ -29,7 +29,7 @@ import { useEffect, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import { PointerLockControls } from '@react-three/drei'
 import * as THREE from 'three'
-import { sendMoveAction } from '../network/useNetworkState'
+import { sendMoveAction, consumeServerCorrection } from '../network/useNetworkState'
 import { isAnyVehicleActive } from '../vehicles/VehicleSystem'
 
 // ============================================================================
@@ -257,6 +257,18 @@ export function PlayerController() {
     // Yield to any active vehicle (plane, submarine, car, drone, etc.)
     if (isAnyVehicleActive()) return
 
+    // Server correction: snap camera to server-authoritative position when
+    // the server detects a divergence (Collision or Accelerating state).
+    // This couples the local camera to the server entity on corrections.
+    const correction = consumeServerCorrection()
+    if (correction) {
+      camera.position.x = correction.x
+      camera.position.y = correction.y + EYE_HEIGHT
+      camera.position.z = correction.z
+      // Also reset local floor tracking so gravity re-anchors from corrected Y
+      currentFloorYRef.current = correction.y
+    }
+
     const dt = Math.min(delta, MAX_DELTA)
 
     // Initialize floor Y on first frame
@@ -272,7 +284,14 @@ export function PlayerController() {
     if (KEYS.d) _velocity.x += 1
 
     const hasInput = _velocity.lengthSq() > 0
-    if (!hasInput && !_flyMode) return
+
+    // Always send movement to server — including (0,0,0) when stopped.
+    // Server uses direct velocity set, so an explicit zero action stops the entity immediately.
+    // Without this, the server body keeps its last velocity indefinitely.
+    if (!hasInput) {
+      sendMoveAction(0, 0, 0)
+      if (!_flyMode) return  // no local camera movement needed either
+    }
 
     // Compute forward and right from camera direction
     camera.getWorldDirection(_forward)
@@ -298,7 +317,8 @@ export function PlayerController() {
 
       // Send movement to server
       const worldDirX = _forward.x * _velocity.z + _right.x * _velocity.x
-      const worldDirY = _flyMode ? (_velocity.y || 0) : 0
+      // dy=1 signals jump request; server applies PLAYER_JUMP_SPEED if grounded.
+      const worldDirY = KEYS.space ? 1.0 : (_flyMode ? (_velocity.y || 0) : 0)
       const worldDirZ = _forward.z * _velocity.z + _right.z * _velocity.x
       sendMoveAction(worldDirX, worldDirY, worldDirZ)
     }
@@ -448,7 +468,8 @@ export function PlayerController() {
     } else if (stairStateRef.current.state === 'ON_STAIRS') {
       // ON_STAIRS: Y is a pure linear function of XZ progress along the stair
       // This is the key insight from ELEV8 — Y is DECOUPLED from look angle
-      const stair = _staircases.find(s => s.id === stairStateRef.current.currentStairId)!
+      const stair = _staircases.find(s => s.id === stairStateRef.current.currentStairId)
+      if (!stair) return // guard: ON_STAIRS state should always have a valid stairId
 
       _currentXZ.set(camera.position.x, 0, camera.position.z)
 

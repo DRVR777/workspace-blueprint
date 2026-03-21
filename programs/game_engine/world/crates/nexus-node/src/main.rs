@@ -8,17 +8,18 @@
 
 mod tick_loop;
 mod server;
+mod quic_server;
 mod protocol;
 mod clients;
 
 use nexus_core::math::{Vec3f64, Aabb64};
 use nexus_core::config::WorldPhysicsConfig;
 use nexus_core::types::{WorldStateSnapshot, PhysicsBody, ShapeParams, ChangeRequest};
-use nexus_core::constants::SECTOR_SIZE;
+use nexus_core::constants::{SECTOR_SIZE, QUIC_PORT};
 use nexus_spatial::SpatialIndex;
 
 use std::sync::Arc;
-use tokio::sync::{RwLock, broadcast, mpsc};
+use tokio::sync::{RwLock, mpsc};
 
 use clients::ClientManager;
 
@@ -36,15 +37,17 @@ impl WorldState {
         let id = self.next_entity_id;
         self.next_entity_id += 1;
 
+        // Capsule: half_height=0.5m + radius=0.3m → 1.6m tall humanoid.
+        // Prevents avatar from spinning on contact; gives correct slope/step behavior.
         let body = PhysicsBody::new_dynamic(
             id,
             Vec3f64::new(0.0, 1.0, 5.0), // spawn position
             70.0, // ~human mass kg
-            ShapeParams::Sphere { radius: 0.4 },
+            ShapeParams::Capsule { half_height: 0.5, radius: 0.3 },
         );
 
         self.snapshot.bodies.push(body);
-        self.spatial_index.insert(id, Vec3f64::new(0.0, 1.0, 5.0), 0.4);
+        self.spatial_index.insert(id, Vec3f64::new(0.0, 1.0, 5.0), 0.8); // bounding_radius = 0.5+0.3
 
         tracing::info!("Spawned player entity {}", id);
         id
@@ -79,14 +82,13 @@ async fn main() {
     let domain = Aabb64::new(Vec3f64::ZERO, Vec3f64::new(SECTOR_SIZE, SECTOR_SIZE, SECTOR_SIZE));
 
     // Add a ground plane (static body)
-    let mut bodies = Vec::new();
-    bodies.push(PhysicsBody::new_static(
+    let bodies = vec![PhysicsBody::new_static(
         0, // ground entity ID
-        Vec3f64::new(500.0, -0.5, 500.0), // center of domain, slightly below Y=0
+        Vec3f64::new(0.0, -0.5, 0.0), // origin-centered ground — matches client Terrain at (0,0,0)
         ShapeParams::Box {
             half_extents: nexus_core::math::Vec3f32::new(500.0, 0.5, 500.0),
         },
-    ));
+    )];
 
     let spatial_index = SpatialIndex::new(domain);
 
@@ -106,27 +108,29 @@ async fn main() {
     // Action queue: clients push actions, tick loop drains them
     let (action_tx, action_rx) = mpsc::unbounded_channel::<QueuedAction>();
 
-    // Broadcast channel: tick loop pushes position updates, clients receive them
-    let (broadcast_tx, _) = broadcast::channel::<Vec<u8>>(128);
-
-    // Client manager
+    // Client manager — holds per-client send channels; no global broadcast needed
     let client_manager = Arc::new(RwLock::new(ClientManager::new()));
 
     // Spawn tick loop and WebSocket server concurrently
     let tick_state = world_state.clone();
-    let tick_broadcast = broadcast_tx.clone();
     let tick_clients = client_manager.clone();
 
     let server_state = world_state.clone();
-    let server_broadcast = broadcast_tx.clone();
     let server_clients = client_manager.clone();
 
+    let quic_state = world_state.clone();
+    let quic_action_tx = action_tx.clone();
+    let quic_clients = client_manager.clone();
+
     tokio::select! {
-        result = tick_loop::run(tick_state, action_rx, tick_broadcast, tick_clients) => {
+        result = tick_loop::run(tick_state, action_rx, tick_clients) => {
             tracing::error!("Tick loop exited: {:?}", result);
         }
-        result = server::run(port, server_state, action_tx, server_broadcast, server_clients) => {
+        result = server::run(port, server_state, action_tx, server_clients) => {
             tracing::error!("WebSocket server exited: {:?}", result);
+        }
+        result = quic_server::run(QUIC_PORT, quic_state, quic_action_tx, quic_clients) => {
+            tracing::error!("QUIC server exited: {:?}", result);
         }
     }
 }

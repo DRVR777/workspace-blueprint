@@ -31,6 +31,25 @@ pub enum BodyCategory {
     Kinematic = 2,
 }
 
+/// Network motion state — Newton's 1st Law applied to bandwidth.
+///
+/// Computed each tick by the physics system after the Rapier step.
+/// Determines whether the client needs a position update (ΣF≠0)
+/// or can predict locally (ΣF≈0 → velocity is constant).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum MotionState {
+    /// ΣF ≈ 0: velocity is constant plus predictable damping.
+    /// Client predicts: pos += vel * dt. No server update needed.
+    Inertial = 0,
+    /// ΣF ≠ 0: player or agent applied force this tick.
+    /// Client must receive new state.
+    Accelerating = 1,
+    /// Collision impulse applied — velocity changed discontinuously.
+    /// Client must snap to server state immediately.
+    Collision = 2,
+}
+
 /// Collision shape type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -38,6 +57,8 @@ pub enum CollisionShape {
     Sphere = 0,
     Box = 1,
     ConvexHull = 2,
+    /// Y-axis aligned capsule. Used for humanoid characters.
+    Capsule = 3,
 }
 
 /// Shape parameters. Size depends on shape type.
@@ -46,6 +67,10 @@ pub enum ShapeParams {
     Sphere { radius: f32 },
     Box { half_extents: Vec3f32 },
     ConvexHull { vertices: Vec<Vec3f32> },
+    /// Y-axis aligned capsule: cylinder of `2*half_height` capped by hemispheres of `radius`.
+    /// Total height = 2 * (half_height + radius).
+    /// Use for humanoid avatars: half_height=0.5, radius=0.3 → 1.6m tall.
+    Capsule { half_height: f32, radius: f32 },
 }
 
 /// A physics body in the simulation. Maps to PHYSICS_BODY in simulation-contract.md.
@@ -69,6 +94,15 @@ pub struct PhysicsBody {
 
     // Kinematic only
     pub scripted_velocity: Vec3f32,
+
+    /// Motion state computed by the physics system each tick.
+    /// Drives client-side prediction: Inertial bodies skip server updates.
+    pub motion_state: MotionState,
+
+    /// Vehicle the entity is currently piloting.
+    /// 0 = on foot, 1 = plane/fly mode.
+    /// Set from client PLAYER_ACTION payload; broadcast to all nearby clients.
+    pub vehicle_mode: u8,
 }
 
 impl PhysicsBody {
@@ -87,6 +121,8 @@ impl PhysicsBody {
             applied_force: Vec3f32::ZERO,
             applied_torque: Vec3f32::ZERO,
             scripted_velocity: Vec3f32::ZERO,
+            motion_state: MotionState::Inertial,
+            vehicle_mode: 0,
         }
     }
 
@@ -105,6 +141,8 @@ impl PhysicsBody {
             applied_force: Vec3f32::ZERO,
             applied_torque: Vec3f32::ZERO,
             scripted_velocity: Vec3f32::ZERO,
+            motion_state: MotionState::Inertial,
+            vehicle_mode: 0,
         }
     }
 
@@ -123,6 +161,8 @@ impl PhysicsBody {
             applied_force: Vec3f32::ZERO,
             applied_torque: Vec3f32::ZERO,
             scripted_velocity: Vec3f32::ZERO,
+            motion_state: MotionState::Inertial,
+            vehicle_mode: 0,
         }
     }
 
@@ -140,6 +180,7 @@ impl PhysicsBody {
                     .map(|v| v.magnitude())
                     .fold(0.0f32, f32::max)
             }
+            ShapeParams::Capsule { half_height, radius } => half_height + radius,
         }
     }
 }

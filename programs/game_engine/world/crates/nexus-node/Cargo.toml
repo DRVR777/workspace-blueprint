@@ -15,3 +15,7 @@ prost = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 futures-util = "0.3"
+quinn = { workspace = true }
+rcgen = { workspace = true }
+rustls = { workspace = true }
+bytes = { workspace = true }

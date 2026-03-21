@@ -105,15 +105,14 @@ pub fn validate_inputs_from_bodies(
     let mut spawn_count = 0usize;
 
     for request in inputs {
-        if request.change_type != ChangeType::Create {
-            if !bodies.iter().any(|b| b.object_id == request.object_id) {
+        if request.change_type != ChangeType::Create
+            && !bodies.iter().any(|b| b.object_id == request.object_id) {
                 rejected.push(RejectedRequest {
                     original_sequence_number: request.sequence_number,
                     reason_code: 0x01,
                 });
                 continue;
             }
-        }
 
         match request.change_type {
             ChangeType::Move => {

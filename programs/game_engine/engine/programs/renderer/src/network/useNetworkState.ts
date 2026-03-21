@@ -35,13 +35,19 @@ const RECONNECT_DELAY = 2000 // ms
 const MAX_RECONNECT_ATTEMPTS = 10
 
 // Message type codes (from shared/schemas/README.md)
-const MSG_ENTITY_POSITION_UPDATE = 0x0001
+const MSG_ENTITY_POSITION_UPDATE = 0x0001 // Legacy — still handled for compat
+const MSG_PHYSICS_DELTA = 0x0002          // Newton delta: non-inertial + overdue bodies
+const MSG_FULL_SYNC = 0x0003              // Full state: all dynamic bodies
 const MSG_TICK_SYNC = 0x0004
 const MSG_PLAYER_JOINED = 0x0005
 const MSG_PLAYER_LEFT = 0x0006
 const MSG_HANDSHAKE = 0x0100
 const MSG_HANDSHAKE_RESPONSE = 0x0101
 const MSG_PLAYER_ACTION = 0x0200
+
+const MOTION_STATE_INERTIAL = 0
+// MOTION_STATE_ACCELERATING = 1 — received but unused until Phase 1 prediction reset
+const MOTION_STATE_COLLISION = 2
 
 // ============================================================================
 // Network State (module-level, not React state — avoids re-renders)
@@ -57,6 +63,33 @@ let _serverUrl = DEFAULT_SERVER
 
 // Entity map: id → latest state (updated from server, read each frame)
 const _entities: Map<number, EntityState> = new Map()
+
+// ============================================================================
+// Input Buffer — client-side reconciliation (Gap 1 fix)
+// ============================================================================
+//
+// Records player inputs sent to the server. When the server sends a Collision
+// or Accelerating correction for the local player's entity, we:
+//   1. Snap to server state (authoritative)
+//   2. Replay unacknowledged inputs from the buffer (Phase 0 approximation)
+//
+// This eliminates rubber-banding without requiring full local physics.
+// Phase 3 will replace this with full deterministic physics replay.
+
+interface BufferedInput {
+  seq: number   // monotonically increasing sequence number sent to server
+  dx: number
+  dy: number
+  dz: number
+}
+
+// Approximate speed used for input replay (matches renderer PlayerController).
+// Replace with physics-accurate value in Phase 3.
+const PLAYER_APPROX_SPEED = 5 // m/s
+
+const INPUT_BUFFER_MAX = 50 // ~1 second at 50 Hz send rate
+const _inputBuffer: BufferedInput[] = []
+let _inputSeq = 0 // monotonically increasing counter — server acks via ack_seq in PHYSICS_DELTA
 
 // ============================================================================
 // Connection
@@ -192,19 +225,56 @@ const SEND_INTERVAL_MS = 20 // match server tick rate
 let _lastSendTime = 0
 let _pendingDir: [number, number, number] | null = null
 
-export function sendMoveAction(dirX: number, dirY: number, dirZ: number): void {
+export function sendMoveAction(
+  dirX: number, dirY: number, dirZ: number,
+  vehicleMode?: number,
+  qx?: number, qy?: number, qz?: number, qw?: number,
+  posX?: number, posY?: number, posZ?: number,
+): void {
   _pendingDir = [dirX, dirY, dirZ]
 
   const now = performance.now()
   if (now - _lastSendTime < SEND_INTERVAL_MS) return
   _lastSendTime = now
 
-  const payload = new ArrayBuffer(12)
-  const view = new DataView(payload)
-  view.setFloat32(0, _pendingDir[0], true)
-  view.setFloat32(4, _pendingDir[1], true)
-  view.setFloat32(8, _pendingDir[2], true)
-  _sendBinary(MSG_PLAYER_ACTION, payload)
+  const seq = ++_inputSeq
+
+  _inputBuffer.push({ seq, dx: _pendingDir[0], dy: _pendingDir[1], dz: _pendingDir[2] })
+  if (_inputBuffer.length > INPUT_BUFFER_MAX) _inputBuffer.shift()
+
+  const hasVehicle = vehicleMode !== undefined && vehicleMode !== 0
+  if (hasVehicle) {
+    // Extended PLAYER_ACTION payload (48 bytes):
+    //   [4] dx, [4] dy, [4] dz, [4] seq
+    //   [1] vehicle_mode, [3] padding
+    //   [4] qx, [4] qy, [4] qz, [4] qw
+    //   [4] pos_x, [4] pos_y, [4] pos_z  ← client-authoritative position
+    const payload = new ArrayBuffer(48)
+    const view = new DataView(payload)
+    view.setFloat32(0, _pendingDir[0], true)
+    view.setFloat32(4, _pendingDir[1], true)
+    view.setFloat32(8, _pendingDir[2], true)
+    view.setUint32(12, seq, true)
+    view.setUint8(16, vehicleMode ?? 0)
+    // bytes 17-19: padding (zero)
+    view.setFloat32(20, qx ?? 0, true)
+    view.setFloat32(24, qy ?? 0, true)
+    view.setFloat32(28, qz ?? 0, true)
+    view.setFloat32(32, qw ?? 1, true)
+    view.setFloat32(36, posX ?? 0, true)
+    view.setFloat32(40, posY ?? 0, true)
+    view.setFloat32(44, posZ ?? 0, true)
+    _sendBinary(MSG_PLAYER_ACTION, payload)
+  } else {
+    // Base PLAYER_ACTION payload (16 bytes): dx, dy, dz, seq
+    const payload = new ArrayBuffer(16)
+    const view = new DataView(payload)
+    view.setFloat32(0, _pendingDir[0], true)
+    view.setFloat32(4, _pendingDir[1], true)
+    view.setFloat32(8, _pendingDir[2], true)
+    view.setUint32(12, seq, true)
+    _sendBinary(MSG_PLAYER_ACTION, payload)
+  }
   _pendingDir = null
 }
 
@@ -247,6 +317,23 @@ function _handleBinaryMessage(data: ArrayBuffer): void {
       }
       break
 
+    case MSG_PHYSICS_DELTA:
+    case MSG_FULL_SYNC:
+      _handlePhysicsDelta(payload)
+      _positionUpdateCount++
+      if (performance.now() - _lastPositionLogTime > 5000) {
+        const isFull = header.type === MSG_FULL_SYNC
+        const entityCount = Math.floor((payload.byteLength - 4) / 26) // -4 for ack_seq header
+        console.log(
+          `[NEXUS Net] ${isFull ? 'FULL_SYNC' : 'PHYSICS_DELTA'}: ${_positionUpdateCount} in last 5s, ` +
+          `${entityCount} entities in batch, ` +
+          `${(_totalBytesReceived / 1024).toFixed(1)}KB received total`
+        )
+        _positionUpdateCount = 0
+        _lastPositionLogTime = performance.now()
+      }
+      break
+
     case MSG_TICK_SYNC:
       _handleTickSync(payload)
       break
@@ -262,6 +349,96 @@ function _handleBinaryMessage(data: ArrayBuffer): void {
     default:
       console.log(`[NEXUS Net] Unknown message type: 0x${header.type.toString(16).padStart(4, '0')} (${data.byteLength} bytes)`)
       break
+  }
+}
+
+/**
+ * Handle PHYSICS_DELTA (0x0002) and FULL_SYNC (0x0003).
+ *
+ * Payload layout:
+ *   [4] ack_seq (u32 LE) — last input seq the server processed for this client
+ *   [N × 26] entity records:
+ *     [4] entity_id (u32)
+ *     [1] motion_state (u8: 0=inertial, 1=accelerating, 2=collision)
+ *     [1] vehicle_mode (u8: 0=on foot, 1=plane/fly)
+ *     [2] x (i16, × 1/32 = meters)
+ *     [2] y (i16)
+ *     [2] z (i16)
+ *     [2] vx (i16, × 1/32 = m/s)
+ *     [2] vy (i16)
+ *     [2] vz (i16)
+ *     [2] oqx (i16, × 1/32767 → -1..1)
+ *     [2] oqy (i16)
+ *     [2] oqz (i16)
+ *     [2] oqw (i16)
+ */
+function _handlePhysicsDelta(payload: ArrayBuffer): void {
+  if (payload.byteLength < 4) return
+
+  const view = new DataView(payload)
+
+  // First 4 bytes: ack_seq — server's confirmation of inputs processed for this client.
+  // Use to prune the input buffer: discard any entry with seq ≤ ack_seq.
+  const ackSeq = view.getUint32(0, true)
+
+  const ENTITY_SIZE = 26
+  const entityDataStart = 4 // ack_seq header offset
+  const count = Math.floor((payload.byteLength - entityDataStart) / ENTITY_SIZE)
+
+  for (let i = 0; i < count; i++) {
+    const off = entityDataStart + i * ENTITY_SIZE
+    const id = view.getUint32(off, true)
+    const motionState = view.getUint8(off + 4)
+    const vehicleMode = view.getUint8(off + 5)
+    const x = view.getInt16(off + 6, true) / 32.0
+    const y = view.getInt16(off + 8, true) / 32.0
+    const z = view.getInt16(off + 10, true) / 32.0
+    const vx = view.getInt16(off + 12, true) / 32.0
+    const vy = view.getInt16(off + 14, true) / 32.0
+    const vz = view.getInt16(off + 16, true) / 32.0
+    const qx = view.getInt16(off + 18, true) / 32767.0
+    const qy = view.getInt16(off + 20, true) / 32767.0
+    const qz = view.getInt16(off + 22, true) / 32767.0
+    const qw = view.getInt16(off + 24, true) / 32767.0
+    // Derive yaw from quaternion for legacy callers
+    const yaw = Math.atan2(2 * (qw * qy + qx * qz), 1 - 2 * (qy * qy + qz * qz))
+
+    _entities.set(id, { id, x, y, z, yaw, vx, vy, vz, motionState, vehicleMode, qx, qy, qz, qw })
+
+    // ---- Reconciliation: replay unacknowledged inputs after server correction ----
+    //
+    // Triggered only for the local player on Collision/Accelerating state.
+    // Inertial: client prediction was correct — no correction needed.
+    // Collision/Accelerating: server diverged from client prediction —
+    //   snap to server state (done above), then re-apply inputs with seq > ack_seq
+    //   (those are in-flight; server hasn't seen them yet).
+    if (id === _playerId && motionState !== MOTION_STATE_INERTIAL) {
+      const entity = _entities.get(id)
+      if (entity) {
+        // Prune acknowledged inputs (seq ≤ ack_seq from this message)
+        let discardCount = 0
+        while (discardCount < _inputBuffer.length && _inputBuffer[discardCount].seq <= ackSeq) {
+          discardCount++
+        }
+        if (discardCount > 0) _inputBuffer.splice(0, discardCount)
+
+        // Replay in-flight inputs (seq > ack_seq) — hide RTT latency
+        const replayDt = SEND_INTERVAL_MS / 1000
+        for (const input of _inputBuffer) {
+          entity.x += input.dx * PLAYER_APPROX_SPEED * replayDt
+          entity.y += input.dy * PLAYER_APPROX_SPEED * replayDt
+          entity.z += input.dz * PLAYER_APPROX_SPEED * replayDt
+        }
+
+        // Signal PlayerController to snap camera ONLY on Collision.
+        // Normal movement (Accelerating) stays local — server tick rate must not
+        // affect feel of walking. Only a collision interrupt (external impulse,
+        // wall contact, player bump) overrides local camera.
+        if (motionState === MOTION_STATE_COLLISION) {
+          _pendingCorrection = { x: entity.x, y: entity.y, z: entity.z }
+        }
+      }
+    }
   }
 }
 
@@ -319,17 +496,53 @@ function _handlePlayerLeft(payload: ArrayBuffer): void {
 }
 
 // ============================================================================
+// Server correction channel — consumed by PlayerController to snap camera
+// ============================================================================
+//
+// When the server sends a non-inertial update for the local player, it means
+// the server's position diverges from what the client predicted. PlayerController
+// polls this each frame and snaps the camera to the corrected position.
+
+interface ServerCorrection {
+  x: number
+  y: number
+  z: number
+}
+
+let _pendingCorrection: ServerCorrection | null = null
+
+/** Consume and clear the latest server correction for the local player (if any). */
+export function consumeServerCorrection(): ServerCorrection | null {
+  const c = _pendingCorrection
+  _pendingCorrection = null
+  return c
+}
+
+// ============================================================================
 // Public API — matches worldStateStub interface
 // ============================================================================
 
 /**
- * Step the network state. Call once per frame.
- * Flushes pending actions and updates internal state.
- * (elapsedSeconds not used for network — included for interface compatibility)
+ * Step the network state. Call once per frame with the frame delta time.
+ *
+ * For entities tagged as Inertial by the server (MotionState = 0), advances
+ * position locally using Newton's 1st Law: pos += vel * dt.
+ * This eliminates visual stutter between server updates at no bandwidth cost.
+ *
+ * Non-inertial entities (Accelerating / Collision) only update on server message.
  */
-export function stepWorldState(_elapsedSeconds: number): void {
-  // Network state is event-driven (onmessage updates _entities).
-  // No per-frame work needed here — actions are sent immediately by sendMoveAction.
+export function stepWorldState(elapsedSeconds: number): void {
+  if (elapsedSeconds <= 0 || elapsedSeconds > 0.1) return // guard against bad deltas
+
+  _entities.forEach((entity) => {
+    if (entity.motionState === MOTION_STATE_INERTIAL &&
+        entity.vx !== undefined && entity.vy !== undefined && entity.vz !== undefined) {
+      // Newton's 1st Law: constant velocity until a force acts
+      entity.x += entity.vx * elapsedSeconds
+      entity.y += entity.vy * elapsedSeconds
+      entity.z += entity.vz * elapsedSeconds
+    }
+  })
 }
 
 /**

@@ -3,12 +3,13 @@
 //! Compares the original snapshot bodies to the post-simulation bodies.
 //! Emits StateChangeEvents for everything that changed.
 
-use nexus_core::types::{PhysicsBody, StateChangeEvent, TimestampMs, ObjectId};
+use nexus_core::types::{PhysicsBody, StateChangeEvent, TimestampMs};
 
 /// Object change types (matches ObjectChangeType in object_state_change.fbs).
 const CHANGE_POSITION_UPDATE: u8 = 0;
 const CHANGE_CREATE: u8 = 1;
 const CHANGE_DESTROY: u8 = 2;
+#[allow(dead_code)] // Phase 1: used when object properties change (health, state, etc.)
 const CHANGE_PROPERTY: u8 = 3;
 
 /// Compare original bodies to final bodies. Emit state changes for differences.

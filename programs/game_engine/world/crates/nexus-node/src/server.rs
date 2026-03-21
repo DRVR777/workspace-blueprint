@@ -7,21 +7,25 @@
 //!   2. Client sends HANDSHAKE
 //!   3. Server spawns player entity in world state
 //!   4. Server sends HANDSHAKE_RESPONSE with entity ID
-//!   5. Server broadcasts PLAYER_JOINED to all other clients
+//!   5. Server broadcasts PLAYER_JOINED to all other clients via ClientManager
 //!   6. Client sends PLAYER_ACTION messages (movement input)
 //!   7. Server queues actions for tick loop
 //!   8. On disconnect: despawn entity, broadcast PLAYER_LEFT
+//!
+//! Each client gets a dedicated mpsc channel (client_tx stored in ClientManager,
+//! client_rx used in this handler). The tick loop sends filtered physics updates
+//! per-client via those channels. Global events (PLAYER_JOINED/LEFT, TICK_SYNC)
+//! go to all clients via ClientManager::send_to_all.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
-use tokio::sync::{RwLock, broadcast, mpsc};
+use tokio::sync::{RwLock, mpsc};
 use tokio_tungstenite::accept_async;
 use tokio_tungstenite::tungstenite::Message;
 use futures_util::{StreamExt, SinkExt};
 
 use nexus_core::types::{ChangeRequest, ChangeType};
-use nexus_core::math::Vec3f32;
 
 use crate::{WorldState, QueuedAction};
 use crate::clients::ClientManager;
@@ -32,7 +36,6 @@ pub async fn run(
     port: u16,
     state: Arc<RwLock<WorldState>>,
     action_tx: mpsc::UnboundedSender<QueuedAction>,
-    broadcast_tx: broadcast::Sender<Vec<u8>>,
     client_manager: Arc<RwLock<ClientManager>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
@@ -45,12 +48,11 @@ pub async fn run(
 
         let state = state.clone();
         let action_tx = action_tx.clone();
-        let broadcast_tx = broadcast_tx.clone();
         let client_manager = client_manager.clone();
 
         tokio::spawn(async move {
             if let Err(e) = handle_connection(
-                stream, peer_addr, state, action_tx, broadcast_tx, client_manager,
+                stream, peer_addr, state, action_tx, client_manager,
             ).await {
                 tracing::error!("Connection {} error: {}", peer_addr, e);
             }
@@ -63,7 +65,6 @@ async fn handle_connection(
     peer_addr: SocketAddr,
     state: Arc<RwLock<WorldState>>,
     action_tx: mpsc::UnboundedSender<QueuedAction>,
-    broadcast_tx: broadcast::Sender<Vec<u8>>,
     client_manager: Arc<RwLock<ClientManager>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let ws_stream = accept_async(stream).await?;
@@ -71,8 +72,9 @@ async fn handle_connection(
 
     tracing::info!("{} WebSocket upgraded", peer_addr);
 
-    // Subscribe to broadcast channel (position updates from tick loop)
-    let mut broadcast_rx = broadcast_tx.subscribe();
+    // Per-client channel: tick loop pushes filtered physics updates via client_tx,
+    // this handler forwards them to the WebSocket via client_rx.
+    let (client_tx, mut client_rx) = mpsc::unbounded_channel::<Vec<u8>>();
 
     // === Wait for HANDSHAKE ===
     let entity_id = loop {
@@ -87,20 +89,23 @@ async fn handle_connection(
                             world.spawn_player()
                         };
 
-                        // Register client
+                        // Register client — stores client_tx so tick loop can send to it
                         {
                             let mut cm = client_manager.write().await;
-                            cm.add(peer_addr, entity_id);
+                            cm.add(peer_addr, entity_id, client_tx.clone());
                         }
 
                         // Send HANDSHAKE_RESPONSE
                         let response = protocol::encode_handshake_response(entity_id);
-                        ws_write.send(Message::Binary(response.into())).await?;
+                        ws_write.send(Message::Binary(response)).await?;
                         tracing::info!("{} HANDSHAKE accepted → entity {}", peer_addr, entity_id);
 
-                        // Broadcast PLAYER_JOINED to all other clients
+                        // Broadcast PLAYER_JOINED to all clients (including the new one)
                         let joined_msg = protocol::encode_player_joined(entity_id);
-                        let _ = broadcast_tx.send(joined_msg);
+                        {
+                            let cm = client_manager.read().await;
+                            cm.send_to_all(joined_msg);
+                        }
 
                         // Send initial TICK_SYNC
                         let tick = {
@@ -108,14 +113,14 @@ async fn handle_connection(
                             world.snapshot.tick_number
                         };
                         let sync_msg = protocol::encode_tick_sync(tick);
-                        ws_write.send(Message::Binary(sync_msg.into())).await?;
+                        ws_write.send(Message::Binary(sync_msg)).await?;
 
                         // Send initial position update (all current entities)
                         let positions = {
                             let world = state.read().await;
                             protocol::encode_position_updates(&world.snapshot.bodies)
                         };
-                        ws_write.send(Message::Binary(positions.into())).await?;
+                        ws_write.send(Message::Binary(positions)).await?;
 
                         break entity_id;
                     }
@@ -137,7 +142,7 @@ async fn handle_connection(
         }
     };
 
-    // === Main loop: read client actions + forward broadcasts ===
+    // === Main loop: read client actions + forward per-client physics updates ===
     loop {
         tokio::select! {
             // Client sends a message
@@ -145,34 +150,42 @@ async fn handle_connection(
                 match msg {
                     Some(Ok(msg)) if msg.is_binary() => {
                         let data = msg.into_data();
-                        if let Some((msg_type, payload)) = protocol::decode_header(&data) {
-                            match msg_type {
-                                protocol::MSG_PLAYER_ACTION => {
-                                    if let Some((dx, dy, dz)) = protocol::decode_player_action(payload) {
-                                        // Encode direction as payload bytes for ChangeRequest
-                                        let mut action_payload = Vec::with_capacity(12);
-                                        action_payload.extend_from_slice(&dx.to_le_bytes());
-                                        action_payload.extend_from_slice(&dy.to_le_bytes());
-                                        action_payload.extend_from_slice(&dz.to_le_bytes());
+                        match protocol::decode_header(&data) {
+                            Some((protocol::MSG_PLAYER_ACTION, payload)) => {
+                                if let Some((dx, dy, dz, seq, vehicle_mode, qx, qy, qz, qw, pos_x, pos_y, pos_z)) = protocol::decode_player_action(payload) {
+                                    // Pack ChangeRequest payload: direction + vehicle state + position
+                                    // Layout: [dx][dy][dz][vehicle_mode][pad:3][qx][qy][qz][qw][pos_x][pos_y][pos_z]
+                                    let mut action_payload = Vec::with_capacity(44);
+                                    action_payload.extend_from_slice(&dx.to_le_bytes());
+                                    action_payload.extend_from_slice(&dy.to_le_bytes());
+                                    action_payload.extend_from_slice(&dz.to_le_bytes());
+                                    action_payload.push(vehicle_mode);
+                                    action_payload.extend_from_slice(&[0u8, 0u8, 0u8]); // padding
+                                    action_payload.extend_from_slice(&qx.to_le_bytes());
+                                    action_payload.extend_from_slice(&qy.to_le_bytes());
+                                    action_payload.extend_from_slice(&qz.to_le_bytes());
+                                    action_payload.extend_from_slice(&qw.to_le_bytes());
+                                    action_payload.extend_from_slice(&pos_x.to_le_bytes());
+                                    action_payload.extend_from_slice(&pos_y.to_le_bytes());
+                                    action_payload.extend_from_slice(&pos_z.to_le_bytes());
 
-                                        let request = ChangeRequest {
-                                            source: entity_id,
-                                            change_type: ChangeType::Move,
-                                            object_id: entity_id,
-                                            sequence_number: 0,
-                                            requires_ack: false,
-                                            payload: action_payload,
-                                        };
+                                    let request = ChangeRequest {
+                                        source: entity_id,
+                                        change_type: ChangeType::Move,
+                                        object_id: entity_id,
+                                        sequence_number: seq,
+                                        requires_ack: false,
+                                        payload: action_payload,
+                                    };
 
-                                        let _ = action_tx.send(QueuedAction {
-                                            player_entity_id: entity_id,
-                                            request,
-                                        });
-                                    }
+                                    let _ = action_tx.send(QueuedAction {
+                                        player_entity_id: entity_id,
+                                        request,
+                                    });
                                 }
-                                _ => {
-                                    // Unknown message type — ignore
-                                }
+                            }
+                            _ => {
+                                // Unknown or unparseable message — ignore
                             }
                         }
                     }
@@ -192,19 +205,16 @@ async fn handle_connection(
                 }
             }
 
-            // Tick loop broadcasts position updates
-            result = broadcast_rx.recv() => {
-                match result {
-                    Ok(data) => {
-                        if let Err(e) = ws_write.send(Message::Binary(data.into())).await {
+            // Tick loop sends filtered physics updates for this client
+            data = client_rx.recv() => {
+                match data {
+                    Some(data) => {
+                        if let Err(e) = ws_write.send(Message::Binary(data)).await {
                             tracing::warn!("{} write error: {}", peer_addr, e);
                             break;
                         }
                     }
-                    Err(broadcast::error::RecvError::Lagged(n)) => {
-                        tracing::warn!("{} lagged {} broadcast messages", peer_addr, n);
-                    }
-                    Err(_) => break,
+                    None => break, // channel closed (server shutting down)
                 }
             }
         }
@@ -221,7 +231,10 @@ async fn handle_connection(
     }
 
     let left_msg = protocol::encode_player_left(entity_id);
-    let _ = broadcast_tx.send(left_msg);
+    {
+        let cm = client_manager.read().await;
+        cm.send_to_all(left_msg);
+    }
 
     tracing::info!("{} cleaned up (entity {})", peer_addr, entity_id);
     Ok(())

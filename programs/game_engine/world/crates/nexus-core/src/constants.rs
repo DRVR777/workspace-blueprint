@@ -55,14 +55,37 @@ pub const MAX_TREE_DEPTH: usize = 16;
 /// Maximum force magnitude from a player MOVE action (Newtons).
 pub const MAX_MOVE_FORCE: f32 = 500.0;
 
-/// Translates normalized input direction to force.
+/// Target walk speed for player movement (m/s).
+/// Direct velocity set — no force accumulation. Matches client SPEED constant.
+pub const PLAYER_MOVE_SPEED: f32 = 5.0;
+
+/// Upward velocity applied on jump (m/s). Matches client JUMP_VELOCITY constant.
+pub const PLAYER_JUMP_SPEED: f32 = 6.0;
+
+/// Translates normalized input direction to force (legacy — kept for non-player dynamic bodies).
 pub const PLAYER_MOVE_FORCE_MULTIPLIER: f32 = 50.0;
 
 /// Maximum object spawns per tick (prevent spawn flooding).
 pub const MAX_SPAWNS_PER_TICK: usize = 8;
 
 /// Velocity below which a body is considered "at rest" (m/s).
-pub const REST_VELOCITY_THRESHOLD: f32 = 0.01;
+pub const REST_VELOCITY_THRESHOLD: f32 = 0.05;
+
+/// Squared velocity below which a body is tagged Inertial (m²/s²).
+/// With direct-velocity movement, motion_state is based on speed not applied_force.
+/// Bodies below this threshold are at rest → client needs no delta updates.
+/// Bodies above it are moving → tagged Accelerating → delta sent every tick.
+/// 0.05 m/s threshold: REST_VELOCITY_THRESHOLD² = 0.0025
+pub const REST_VELOCITY_SQ: f32 = REST_VELOCITY_THRESHOLD * REST_VELOCITY_THRESHOLD;
+
+/// Squared applied-force magnitude below which a body is tagged Inertial (N²).
+/// Legacy — kept for non-player dynamic bodies that still use force accumulation.
+pub const FORCE_THRESHOLD_SQ: f32 = 0.1;
+
+/// Ticks between mandatory full-state resyncs for continuously inertial bodies.
+/// At 100 Hz: 150 ticks = 1.5 seconds. Corrects accumulated client prediction drift.
+/// Nemotron review: 3s was too long for continuously moving players.
+pub const PREDICTION_HORIZON_TICKS: u64 = 150;
 
 /// Duration body must be below threshold to trigger ON_REST (seconds).
 pub const REST_DURATION_THRESHOLD: f32 = 1.0;
@@ -73,6 +96,13 @@ pub const REST_DURATION_THRESHOLD: f32 = 1.0;
 
 /// Default server-side visibility radius (units).
 pub const DEFAULT_VISIBILITY_RADIUS: f64 = 500.0;
+
+/// WebSocket server port (browser clients, legacy).
+pub const WEBSOCKET_PORT: u16 = 9001;
+
+/// QUIC/Quinn server port (native clients — UDP, lower latency).
+/// Browser clients use WebSocket; native clients use QUIC datagrams for physics.
+pub const QUIC_PORT: u16 = 9002;
 
 /// Base visibility radius for dynamic computation.
 pub const BASE_VISIBILITY_RADIUS: f64 = 500.0;

@@ -33,12 +33,13 @@ function getServerUrl(): string | null {
   const envUrl = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_NEXUS_SERVER) as string | undefined
   if (envUrl) return envUrl
 
-  // 2. Auto-detect from page URL (when served from VPS)
+  // 2. Auto-detect from page URL (when served from VPS via nginx)
+  // nginx proxies WSS → WS at /newworld/ws, so use that path — not the raw :9001 port.
   if (typeof window !== 'undefined') {
     const host = window.location.hostname
     if (host && host !== 'localhost' && host !== '127.0.0.1') {
       const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-      return `${wsProtocol}//${host}:9001`
+      return `${wsProtocol}//${host}/newworld/ws`
     }
   }
 
@@ -55,7 +56,7 @@ export function useWorldState(): React.MutableRefObject<WorldSnapshot | null> {
   useEffect(() => {
     if (USE_NETWORK) {
       console.log(`[useWorldState] Network mode → ${SERVER_URL}`)
-      connect(SERVER_URL!)
+      connect(SERVER_URL ?? 'ws://localhost:9001')
       return () => disconnect()
     } else {
       console.log('[useWorldState] Stub mode (localhost, no VITE_NEXUS_SERVER)')

@@ -155,11 +155,7 @@ impl SpatialIndex {
     fn remove_entry(node: &mut OctreeNode, object_id: ObjectId) -> Option<SpatialEntry> {
         match node {
             OctreeNode::Leaf { entries } => {
-                if let Some(pos) = entries.iter().position(|e| e.object_id == object_id) {
-                    Some(entries.swap_remove(pos))
-                } else {
-                    None
-                }
+                entries.iter().position(|e| e.object_id == object_id).map(|pos| entries.swap_remove(pos))
             }
             OctreeNode::Branch { children, .. } => {
                 for child in children.iter_mut() {

@@ -25,7 +25,7 @@ pub fn run_tick(
     dt: f32,
 ) -> TickResult {
     let mut bodies = snapshot.bodies.clone();
-    run_tick_internal(&snapshot, &mut bodies, inputs, dt)
+    run_tick_internal(snapshot, &mut bodies, inputs, dt)
 }
 
 /// In-place version: mutates snapshot.bodies directly and returns the result.

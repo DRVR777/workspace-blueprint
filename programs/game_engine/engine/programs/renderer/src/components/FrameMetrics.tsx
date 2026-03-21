@@ -33,7 +33,6 @@ export function FrameMetrics() {
     if (buf.length === LOG_WINDOW) {
       const avg = buf.reduce((s, v) => s + v, 0) / LOG_WINDOW
       if (avg > FRAME_BUDGET_MS) {
-        // eslint-disable-next-line no-console
         console.warn(
           `[NEXUS renderer] frame budget exceeded: avg=${avg.toFixed(2)}ms ` +
           `(${(1000 / avg).toFixed(1)} FPS) over ${LOG_WINDOW} frames`
