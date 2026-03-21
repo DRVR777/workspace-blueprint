@@ -8,7 +8,7 @@
     { "name": "origin_id",   "type": "u64",    "description": "Entity ID of the agent body; 0 = anonymous" },
     { "name": "intent",      "type": "string", "description": "Natural language statement of what the agent will do and why" },
     { "name": "action",      "type": "string", "description": "One action from the world surface vocabulary" },
-    { "name": "context",     "type": "array",  "description": "Object IDs the agent is acting on (u64 each); empty = world-scope" },
+    { "name": "context",     "type": {"array": "u64"},  "description": "Object IDs the agent is acting on (u64 each); empty = world-scope" },
     { "name": "deadline_ms", "type": "u32",    "description": "Deadline in ms from now; 0 = no deadline" }
   ]
 }

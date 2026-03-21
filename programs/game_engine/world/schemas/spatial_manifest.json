@@ -6,7 +6,7 @@
   "fields": [
     { "name": "world_id",  "type": "string",   "description": "Canonical dworld:// URI of this world" },
     { "name": "geometry",  "type": "string?",  "description": "URL or IPFS hash of primary 3D geometry asset" },
-    { "name": "surface",   "type": "array",    "description": "Named actions available to any Body that enters" },
+    { "name": "surface",   "type": {"array": "string"},  "description": "Named actions available to any Body that enters" },
     { "name": "agent",     "type": "string?",  "description": "HTTPS endpoint of the governing AI agent" },
     { "name": "payment",   "type": "string?",  "description": "Payment address for access or metered actions" }
   ]
