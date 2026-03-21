@@ -1,0 +1,3 @@
+# Clippy config — raise lint level for common issues
+# Run with: cargo clippy -- -D warnings  (treats warnings as errors)
+msrv = "1.75.0"
