@@ -69,14 +69,17 @@ export function NexusScene() {
     return () => window.removeEventListener('keydown', handleKey)
   }, [camera])
 
-  // Update active vehicle each frame
+  // Update active vehicle each frame.
+  // Priority 100 = runs after all default-priority hooks (PlayerController,
+  // EntityField, useWorldState) so the plane's camera writes are never
+  // overwritten by something running later in the same frame.
   useFrame((_, delta) => {
     updateActiveVehicle(
       camera as THREE.PerspectiveCamera,
       scene,
       delta,
     )
-  })
+  }, 100)
 
   return (
     <>

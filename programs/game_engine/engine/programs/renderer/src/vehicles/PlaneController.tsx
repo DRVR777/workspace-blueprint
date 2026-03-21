@@ -215,11 +215,11 @@ export class PlaneVehicle implements VehicleController {
     this.reticleEl?.remove()
   }
 
-  update(camera: THREE.PerspectiveCamera, scene: THREE.Scene, _delta: number): void {
+  update(camera: THREE.PerspectiveCamera, scene: THREE.Scene, delta: number): void {
     if (!this.active) return
     this._camera = camera
     this._ensureMeshes(scene)
-    if (this.planeMode) this._updatePlaneMode(camera)
+    if (this.planeMode) this._updatePlaneMode(camera, delta)
     else                this._updateFlyMode(camera)
   }
 
@@ -265,7 +265,7 @@ export class PlaneVehicle implements VehicleController {
   }
 
   // ── plane mode — exact port of controls.js _updatePlaneMode() ─────────────
-  private _updatePlaneMode(camera: THREE.PerspectiveCamera): void {
+  private _updatePlaneMode(camera: THREE.PerspectiveCamera, delta: number): void {
     const plane = this._getActivePlane()
     if (!plane) return
 
@@ -394,7 +394,6 @@ export class PlaneVehicle implements VehicleController {
     this._camTarget.copy(this.planePosition)
       .addScaledVector(this._fwd, -this.cameraOffset.z)
       .addScaledVector(this._up,   this.cameraOffset.y)
-    camera.position.lerp(this._camTarget, this.cameraLerpSpeed)
 
     const t = this.cameraTilt
     // camUp = blend of plane up and world up — reuse _up in place
@@ -402,7 +401,25 @@ export class PlaneVehicle implements VehicleController {
     this._lookTarget.copy(this.planePosition).addScaledVector(this._fwd, 10)
     this._lookM.lookAt(camera.position, this._lookTarget, this._up)
     this._lookQ.setFromRotationMatrix(this._lookM)
-    camera.quaternion.slerp(this._lookQ, 0.08)
+
+    // Frame-rate-independent exponential smoothing — consistent at any fps.
+    // Math.exp(-k * delta): k=8 → ~0.12 factor at 60fps; k=12 → ~0.18 at 60fps.
+    // Snap threshold eliminates micro-oscillation when nearly at target.
+    const posFactor = 1 - Math.exp(-8  * delta)
+    const rotFactor = 1 - Math.exp(-12 * delta)
+
+    if (camera.position.distanceToSquared(this._camTarget) < 0.001) {
+      camera.position.copy(this._camTarget)
+    } else {
+      camera.position.lerp(this._camTarget, posFactor)
+    }
+
+    if (this._lookQ.dot(camera.quaternion) > 0.9999) {
+      camera.quaternion.copy(this._lookQ)
+    } else {
+      camera.quaternion.slerp(this._lookQ, rotFactor)
+    }
+
     this.euler.setFromQuaternion(camera.quaternion, 'YXZ')
 
     // Update reticle position
