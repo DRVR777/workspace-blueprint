@@ -6,6 +6,7 @@ members = [
     "crates/nexus-spatial",
     "crates/nexus-simulation",
     "crates/nexus-node",
+    "crates/nexus-semantic",
 ]
 
 [workspace.package]
@@ -19,6 +20,7 @@ nexus-core       = { path = "crates/nexus-core" }
 nexus-schema     = { path = "crates/nexus-schema" }
 nexus-spatial    = { path = "crates/nexus-spatial" }
 nexus-simulation = { path = "crates/nexus-simulation" }
+nexus-semantic   = { path = "crates/nexus-semantic" }
 
 # Layer 3: Physics
 rapier3d = { version = "0.22", features = ["simd-stable"] }
