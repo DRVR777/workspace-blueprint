@@ -17,5 +17,9 @@ instant-distance = "0.6"
 async-trait = "0.1"
 thiserror   = "1"
 
+# Local embedding model — AllMiniLML6V2 (384D), ~90 MB download on first use
+# default features include ort-download-binaries-native-tls + hf-hub-native-tls
+fastembed = { version = "5", default-features = false, features = ["hf-hub-native-tls", "ort-download-binaries-native-tls"] }
+
 [dev-dependencies]
 tokio = { workspace = true }

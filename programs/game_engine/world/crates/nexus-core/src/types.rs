@@ -476,7 +476,8 @@ pub enum PacketData {
         /// Markdown content of the identity file.
         content: String,
         /// Embedding vector. None = not yet indexed.
-        vector: Option<[f32; 5]>,
+        /// Length depends on the embedding model (384 for AllMiniLML6V2).
+        vector: Option<Vec<f32>>,
     },
 }
 
@@ -494,7 +495,8 @@ pub struct HopRecord {
     pub identity:     URI,
     /// Embedding vector of the identity file at activation time.
     /// Used for drift detection and quality attribution.
-    pub vector:       Option<[f32; 5]>,
+    /// Length depends on the embedding model (384 for AllMiniLML6V2).
+    pub vector:       Option<Vec<f32>>,
     /// Quality score assigned to the output of this hop. None = not yet scored.
     pub quality:      Option<f32>,
 }
@@ -547,7 +549,7 @@ impl SemanticPacket {
         &mut self,
         timestamp_ms: TimestampMs,
         identity: URI,
-        vector: Option<[f32; 5]>,
+        vector: Option<Vec<f32>>,
     ) -> u32 {
         let hop = self.meta.len() as u32;
         self.meta.push(HopRecord {
@@ -629,7 +631,7 @@ mod semantic_packet_tests {
     fn hop_chain_grows_with_each_activation() {
         let mut p = SemanticPacket::new(2, 2, PacketData::Text("q".into()), "dworld://origin/".into());
         let h0 = p.push_hop(ts(), "dworld://identity/A".into(), None);
-        let h1 = p.push_hop(ts() + 1, "dworld://identity/B".into(), Some([0.8, 0.3, 0.5, 0.9, 0.7]));
+        let h1 = p.push_hop(ts() + 1, "dworld://identity/B".into(), Some(vec![0.8f32, 0.3, 0.5, 0.9, 0.7]));
         assert_eq!(h0, 0);
         assert_eq!(h1, 1);
         assert_eq!(p.meta.len(), 2);
@@ -692,12 +694,12 @@ mod semantic_packet_tests {
 
     #[test]
     fn identity_packet_carries_vector() {
-        let vec = [0.9, 0.1, 0.5, 0.8, 0.3];
+        let vec = vec![0.9f32, 0.1, 0.5, 0.8, 0.3];
         let p = SemanticPacket::new(7, 7,
             PacketData::Identity {
                 address: "dworld://council/ORACLE".into(),
                 content: "# ORACLE\nYou are the oracle.".into(),
-                vector: Some(vec),
+                vector: Some(vec.clone()),
             },
             "dworld://make_agent/".into(),
         );

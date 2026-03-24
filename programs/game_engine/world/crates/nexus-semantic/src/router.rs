@@ -69,7 +69,7 @@ impl Router {
             .unwrap_or_default()
             .as_millis() as TimestampMs;
 
-        packet.push_hop(now_ms, identity.address.clone(), Some(identity.vector));
+        packet.push_hop(now_ms, identity.address.clone(), Some(identity.vector.clone()));
 
         // ── Step 5: terminal check, then embed output ────────────────────
         if packet.terminal || packet.depth_exceeded() {
@@ -124,8 +124,8 @@ pub enum RouterError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::identity::seed_identities;
-    use crate::llm::MockLlmClient;
+    use crate::identity::{IdentityFile, IdentityStore, seed_identities};
+    use crate::llm::{MockLlmClient, LocalEmbedClient};
     use nexus_core::types::SemanticPacket;
 
     fn make_router() -> Router {
@@ -221,5 +221,111 @@ mod tests {
         );
         router.route(packet).await.unwrap();
         assert_eq!(llm.call_count(), 1);
+    }
+
+    // ── Bone 1c — the proof test ──────────────────────────────────────────────
+    //
+    // Proves that when a routing step's output is indexed in the semantic field,
+    // the next packet carrying that text finds the memory — not the original seeds.
+    //
+    // Two properties proven:
+    //   1. fastembed produces semantically meaningful 384D vectors
+    //   2. identical text in two different IdentityFiles → identical nearest-neighbor
+    //
+    // Requires the fastembed AllMiniLML6V2 model (~90 MB, downloaded on first run).
+    // Run with: cargo test -- --ignored bone_1c
+    #[tokio::test]
+    #[ignore = "downloads fastembed AllMiniLML6V2 model (~90 MB)"]
+    async fn bone_1c_field_has_memory() {
+        // ── Init real embedder ────────────────────────────────────────────────
+        let llm: Arc<dyn crate::llm::LlmClient> =
+            Arc::new(LocalEmbedClient::new().expect("fastembed init failed"));
+
+        // ── Build identity store with real 384D embeddings ────────────────────
+        // Seed texts are semantically distinct so the HNSW index reflects
+        // real semantic distance, not hand-crafted proximity.
+        let seed_pairs: &[(&str, &str)] = &[
+            ("dworld://council.local/identities/PHILOSOPHER",
+             "You reason from first principles and find the deepest structural truth beneath any question."),
+            ("dworld://council.local/identities/ENGINEER",
+             "You build concrete implementations: data structures, algorithms, executable steps."),
+            ("dworld://council.local/identities/CRITIC",
+             "You find what is wrong — the weakest assumption, the ignored edge case."),
+        ];
+
+        let mut seed_files = Vec::new();
+        for (addr, content) in seed_pairs {
+            let vector = llm.embed(content).await.expect("embed seed");
+            seed_files.push(IdentityFile {
+                address: addr.to_string(),
+                content: content.to_string(),
+                vector,
+            });
+        }
+
+        // ── Route Packet 1 through the seed field ────────────────────────────
+        let store1 = Arc::new(IdentityStore::build(seed_files.clone()));
+        let router1 = Router::new(Arc::clone(&store1), Arc::clone(&llm));
+
+        let packet1 = SemanticPacket::new(
+            10, 10,
+            PacketData::Text(
+                "semantic routing: packets navigate by vector proximity through identity lenses".into()
+            ),
+            "dworld://test/bone1c".into(),
+        );
+
+        // Capture the output text (whether Terminal or Continue — we want the text)
+        let output1 = match router1.route(packet1).await.expect("route packet 1") {
+            RouteResult::Terminal { output, .. } => output,
+            RouteResult::Continue(p) => match p.data {
+                PacketData::Text(s) => s,
+                _ => panic!("expected text data in continued packet"),
+            },
+        };
+
+        // ── Index output1 as a memory in the field ───────────────────────────
+        let memory_vector = llm.embed(&output1).await.expect("embed output1");
+        let mut files_with_memory = seed_files;
+        files_with_memory.push(IdentityFile {
+            address: "dworld://memory/step1".into(),
+            content: output1.clone(),
+            vector: memory_vector,
+        });
+
+        // ── Route Packet 2 carrying output1's text ────────────────────────────
+        // Packet 2's embedding == output1's embedding.
+        // The memory identity's embedding == output1's embedding.
+        // Therefore: nearest(packet2) == memory identity.
+        let store2 = Arc::new(IdentityStore::build(files_with_memory));
+        let router2 = Router::new(store2, Arc::clone(&llm));
+
+        let packet2 = SemanticPacket::new(
+            11, 10, // same chain_id — same reasoning chain
+            PacketData::Text(output1),
+            "dworld://test/bone1c".into(),
+        );
+
+        let result2 = router2.route(packet2).await.expect("route packet 2");
+        let first_hop_identity = match &result2 {
+            RouteResult::Continue(p) | RouteResult::Terminal { packet: p, .. } =>
+                p.meta[0].identity.clone(),
+        };
+
+        // THE PROOF: the field has memory.
+        // What was output is now indexed. The next packet carrying that output
+        // finds the memory — not the original seed identities.
+        assert_eq!(
+            first_hop_identity, "dworld://memory/step1",
+            "Field memory proof failed: packet should find indexed memory, not seed identities"
+        );
+
+        // The hop vector should be real (384D)
+        let hop_vec = match &result2 {
+            RouteResult::Continue(p) | RouteResult::Terminal { packet: p, .. } =>
+                p.meta[0].vector.as_ref().cloned(),
+        };
+        let hop_vec = hop_vec.expect("hop vector must be set");
+        assert_eq!(hop_vec.len(), 384, "AllMiniLML6V2 produces 384D vectors");
     }
 }

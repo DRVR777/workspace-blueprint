@@ -1,28 +1,25 @@
 //! LLM client trait and implementations.
 //!
 //! The routing loop calls exactly two LLM operations:
-//!   embed(text) → [f32; DIMS]   — positions the packet in the field
+//!   embed(text) → Vec<f32>  — positions the packet in the field
 //!   complete(identity, packet) → String — the one call per hop
 //!
-//! MockLlmClient: deterministic, no network, used in all tests.
-//! AnthropicClient: real HTTP to claude-sonnet-4-6 via the Messages API.
-//!
-//! When the real embedding model goes in, `embed` returns [f32; 768].
-//! The interface is unchanged — only DIMS changes.
+//! MockLlmClient: deterministic, no network, used in unit tests.
+//! LocalEmbedClient: fastembed (AllMiniLML6V2, 384D) + mock complete — used in bone 1c proof.
+//! AnthropicClient: fastembed embed + real HTTP to claude-sonnet-4-6 — used in production.
 
+use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicU64, Ordering};
 use nexus_core::types::SemanticPacket;
-use crate::identity::DIMS;
 
 /// Contract between the routing loop and any LLM backend.
 #[async_trait::async_trait]
 pub trait LlmClient: Send + Sync {
-    /// Embed `text` into a [f32; DIMS] vector representing its position
-    /// in the semantic field.
+    /// Embed `text` into a `Vec<f32>` representing its position in the semantic field.
     ///
-    /// Phase 0: mock returns a deterministic projection.
-    /// Phase 1+: calls the embedding endpoint of the configured model.
-    async fn embed(&self, text: &str) -> Result<[f32; DIMS], LlmError>;
+    /// Phase 0 (mock): deterministic byte-frequency projection.
+    /// Phase 1+ (fastembed): AllMiniLML6V2 → 384D dense vector.
+    async fn embed(&self, text: &str) -> Result<Vec<f32>, LlmError>;
 
     /// Make one completion call: inject `identity_content` as the system
     /// identity and the packet's current data + hop chain as the user message.
@@ -47,9 +44,10 @@ pub enum LlmError {
 
 // ─── Mock client ─────────────────────────────────────────────────────────────
 
-/// Deterministic LLM client for tests and bone 1c proof.
+/// Deterministic LLM client for unit tests.
 ///
-/// embed: projects the text's byte sum into [0, 1]^DIMS using a simple hash.
+/// embed: projects the text's byte frequency into [0, 1]^5 using a simple hash.
+///        Output is always 5-dimensional regardless of input.
 /// complete: returns "[IDENTITY_KEYWORD]: [packet_data_preview]".
 ///
 /// The mock's output is semantically meaningless but structurally correct —
@@ -75,10 +73,10 @@ impl Default for MockLlmClient {
 
 #[async_trait::async_trait]
 impl LlmClient for MockLlmClient {
-    async fn embed(&self, text: &str) -> Result<[f32; DIMS], LlmError> {
-        // Deterministic projection: hash each byte into one of the DIMS axes.
-        // Two identical texts produce identical vectors. Similar texts produce
-        // similar vectors by construction (shared byte distribution).
+    async fn embed(&self, text: &str) -> Result<Vec<f32>, LlmError> {
+        // Deterministic 5D projection: hash each byte into one of 5 axes.
+        // Two identical texts produce identical vectors.
+        const DIMS: usize = 5;
         let mut accum = [0.0f32; DIMS];
         let mut total = [0u64; DIMS];
         for (i, byte) in text.bytes().enumerate() {
@@ -86,7 +84,7 @@ impl LlmClient for MockLlmClient {
             accum[axis] += byte as f32;
             total[axis] += 1;
         }
-        let mut result = [0.0f32; DIMS];
+        let mut result = vec![0.0f32; DIMS];
         for i in 0..DIMS {
             result[i] = if total[i] > 0 {
                 (accum[i] / (total[i] as f32 * 255.0)).clamp(0.0, 1.0)
@@ -131,40 +129,105 @@ impl LlmClient for MockLlmClient {
     }
 }
 
+// ─── Local embed client (fastembed) ──────────────────────────────────────────
+
+/// Real embedding via fastembed (AllMiniLML6V2, 384D) + mock LLM completion.
+///
+/// Used for bone 1c proof test and any scenario that needs semantically
+/// meaningful embeddings without an Anthropic API key.
+///
+/// On first use, downloads the AllMiniLML6V2 model (~90 MB) to the fastembed
+/// cache directory (~/.cache/huggingface/hub).
+pub struct LocalEmbedClient {
+    embedder: Arc<Mutex<fastembed::TextEmbedding>>,
+    mock: MockLlmClient,
+}
+
+impl LocalEmbedClient {
+    /// Initialise the fastembed model. Downloads on first call.
+    pub fn new() -> Result<Self, String> {
+        let model = fastembed::TextEmbedding::try_new(
+            fastembed::TextInitOptions::new(fastembed::EmbeddingModel::AllMiniLML6V2)
+                .with_show_download_progress(false),
+        )
+        .map_err(|e| format!("fastembed init: {e}"))?;
+        Ok(Self {
+            embedder: Arc::new(Mutex::new(model)),
+            mock: MockLlmClient::new(),
+        })
+    }
+}
+
+#[async_trait::async_trait]
+impl LlmClient for LocalEmbedClient {
+    async fn embed(&self, text: &str) -> Result<Vec<f32>, LlmError> {
+        let embedder = self.embedder.clone();
+        let text = text.to_string();
+        tokio::task::spawn_blocking(move || {
+            let mut guard = embedder.lock().unwrap();
+            let embeddings = guard
+                .embed(vec![text.as_str()], None)
+                .map_err(|e| LlmError::Http(e.to_string()))?;
+            Ok::<Vec<f32>, LlmError>(embeddings.into_iter().next().unwrap_or_default())
+        })
+        .await
+        .map_err(|e| LlmError::Http(format!("spawn_blocking panicked: {e}")))?
+    }
+
+    async fn complete(
+        &self,
+        identity_content: &str,
+        packet: &SemanticPacket,
+    ) -> Result<String, LlmError> {
+        self.mock.complete(identity_content, packet).await
+    }
+}
+
 // ─── Anthropic client ────────────────────────────────────────────────────────
 
-/// Real LLM client backed by the Anthropic Messages API.
+/// Real LLM client backed by fastembed (embed) + Anthropic Messages API (complete).
 ///
 /// Requires ANTHROPIC_API_KEY environment variable.
 /// Model: claude-sonnet-4-6.
-///
-/// embed: Phase 0 uses the same hash projection as MockLlmClient.
-/// Phase 1+: replace with a call to the embeddings endpoint.
 pub struct AnthropicClient {
     http: reqwest::Client,
     api_key: String,
     model: String,
+    embedder: Arc<Mutex<fastembed::TextEmbedding>>,
 }
 
 impl AnthropicClient {
     pub fn from_env() -> Result<Self, String> {
         let api_key = std::env::var("ANTHROPIC_API_KEY")
             .map_err(|_| "ANTHROPIC_API_KEY not set".to_string())?;
+        let model = fastembed::TextEmbedding::try_new(
+            fastembed::TextInitOptions::new(fastembed::EmbeddingModel::AllMiniLML6V2)
+                .with_show_download_progress(false),
+        )
+        .map_err(|e| format!("fastembed init: {e}"))?;
         Ok(Self {
             http: reqwest::Client::new(),
             api_key,
             model: "claude-sonnet-4-6".to_string(),
+            embedder: Arc::new(Mutex::new(model)),
         })
     }
 }
 
 #[async_trait::async_trait]
 impl LlmClient for AnthropicClient {
-    async fn embed(&self, text: &str) -> Result<[f32; DIMS], LlmError> {
-        // Phase 0: same hash projection as mock.
-        // Phase 1+: replace with embeddings API call.
-        let mock = MockLlmClient::new();
-        mock.embed(text).await
+    async fn embed(&self, text: &str) -> Result<Vec<f32>, LlmError> {
+        let embedder = self.embedder.clone();
+        let text = text.to_string();
+        tokio::task::spawn_blocking(move || {
+            let mut guard = embedder.lock().unwrap();
+            let embeddings = guard
+                .embed(vec![text.as_str()], None)
+                .map_err(|e| LlmError::Http(e.to_string()))?;
+            Ok::<Vec<f32>, LlmError>(embeddings.into_iter().next().unwrap_or_default())
+        })
+        .await
+        .map_err(|e| LlmError::Http(format!("spawn_blocking panicked: {e}")))?
     }
 
     async fn complete(

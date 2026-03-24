@@ -3,21 +3,13 @@
 //! An identity file is the lens. The store is the ether — the collection
 //! of all lenses suspended in the semantic field.
 //!
-//! Phase 0: vectors are [f32; 5] matching the knowledge-graph's 5D spec
-//! (specificity, technicality, temporality, centrality, confidence).
-//! The HNSW index works at any vector length; the const is the only change
-//! needed when upgrading to [f32; 768] from a real embedding model.
-//!
-//! Phase 1+: replace DIMS with the embedding model's output dimension.
-//! The rest of this file is unchanged.
+//! Phase 0: vectors are hand-crafted [f32; 5] slices stored as Vec<f32>.
+//! Phase 1+: vectors are 384-dim output from AllMiniLML6V2 (fastembed).
+//! The HNSW index works at any vector length — only the embedding call changes.
 
 use std::collections::HashMap;
 use instant_distance::{Builder, HnswMap, Search, Point};
-use nexus_core::types::{TimestampMs, URI};
-
-/// Embedding dimension. 5 for Phase 0 (knowledge-graph spec).
-/// Swap to 768 when the real embedding model goes in.
-pub const DIMS: usize = 5;
+use nexus_core::types::URI;
 
 /// One identity file — a lens in the semantic field.
 #[derive(Debug, Clone)]
@@ -28,15 +20,15 @@ pub struct IdentityFile {
     /// Injected as the system prompt prefix when the packet activates this lens.
     pub content: String,
     /// Embedding vector. Determines position in the field.
-    /// Phase 0: hand-crafted [f32; DIMS]. Phase 1+: model-computed.
-    pub vector: [f32; DIMS],
+    /// Phase 0: hand-crafted 5D. Phase 1+: 384D from AllMiniLML6V2.
+    pub vector: Vec<f32>,
 }
 
 // ─── HNSW integration ────────────────────────────────────────────────────────
 
-/// Wrapper so [f32; DIMS] satisfies the `instant_distance::Point` trait.
+/// Wrapper so `Vec<f32>` satisfies the `instant_distance::Point` trait.
 #[derive(Clone, PartialEq)]
-pub(crate) struct EmbedPoint(pub [f32; DIMS]);
+pub(crate) struct EmbedPoint(pub Vec<f32>);
 
 impl Point for EmbedPoint {
     fn distance(&self, other: &Self) -> f32 {
@@ -79,7 +71,7 @@ impl IdentityStore {
 
         let hnsw = if files.len() >= 2 {
             let points: Vec<EmbedPoint> = files.iter()
-                .map(|f| EmbedPoint(f.vector))
+                .map(|f| EmbedPoint(f.vector.clone()))
                 .collect();
             let values: Vec<URI> = files.iter()
                 .map(|f| f.address.clone())
@@ -94,13 +86,13 @@ impl IdentityStore {
 
     /// Return the identity file most semantically proximate to `query`.
     /// Falls back to brute-force linear scan when the index has < 2 entries.
-    pub fn nearest(&self, query: &[f32; DIMS]) -> Option<&IdentityFile> {
+    pub fn nearest(&self, query: &[f32]) -> Option<&IdentityFile> {
         if self.files.is_empty() {
             return None;
         }
 
         if let Some(ref index) = self.hnsw {
-            let q = EmbedPoint(*query);
+            let q = EmbedPoint(query.to_vec());
             let mut search = Search::default();
             let nearest_addr: Option<URI> = index.search(&q, &mut search)
                 .next()
@@ -129,16 +121,17 @@ impl IdentityStore {
     }
 }
 
-fn cosine_distance(a: &[f32; DIMS], b: &[f32; DIMS]) -> f32 {
-    EmbedPoint(*a).distance(&EmbedPoint(*b))
+fn cosine_distance(a: &[f32], b: &[f32]) -> f32 {
+    EmbedPoint(a.to_vec()).distance(&EmbedPoint(b.to_vec()))
 }
 
 // ─── Seed identity files ─────────────────────────────────────────────────────
 
 /// Five seed identity files for bone 1c — the first proof test.
 ///
-/// Vectors are hand-crafted [specificity, technicality, temporality, centrality, confidence].
-/// Each file occupies a distinct region of the 5D field so routing can be observed.
+/// Vectors are hand-crafted 5D [specificity, technicality, temporality, centrality, confidence].
+/// Each file occupies a distinct region of the field so routing can be observed.
+/// Phase 1+: replace with real AllMiniLML6V2 embeddings of the content strings.
 pub fn seed_identities() -> Vec<IdentityFile> {
     vec![
         IdentityFile {
@@ -149,7 +142,7 @@ you find the deepest structural truth beneath it. You do not answer the surface
 question — you find the question beneath the question and answer that.\n\
 Your outputs are short and structurally dense. No padding.".into(),
             //         spec  tech  temp  cent  conf
-            vector: [0.2,  0.1,  0.8,  0.9,  0.7],
+            vector: vec![0.2,  0.1,  0.8,  0.9,  0.7],
         },
         IdentityFile {
             address: "dworld://council.local/identities/ENGINEER".into(),
@@ -159,7 +152,7 @@ concrete implementation: a data structure, an algorithm, a sequence of steps.
 No speculation — only what can be built and tested.\n\
 Your outputs are precise, minimal, and executable.".into(),
             //         spec  tech  temp  cent  conf
-            vector: [0.9,  0.9,  0.2,  0.5,  0.9],
+            vector: vec![0.9,  0.9,  0.2,  0.5,  0.9],
         },
         IdentityFile {
             address: "dworld://council.local/identities/CRITIC".into(),
@@ -169,7 +162,7 @@ or plan, you identify the weakest point — the assumption that could break,
 the edge case that was ignored, the thing nobody wanted to say.\n\
 Your outputs are brief and pointed. One flaw per response, the most important one.".into(),
             //         spec  tech  temp  cent  conf
-            vector: [0.7,  0.5,  0.5,  0.6,  0.8],
+            vector: vec![0.7,  0.5,  0.5,  0.6,  0.8],
         },
         IdentityFile {
             address: "dworld://council.local/identities/SYNTHESIZER".into(),
@@ -179,7 +172,7 @@ When given multiple perspectives, outputs, or fragments, you find the
 underlying pattern that unifies them and state it in one sentence.\n\
 Your outputs are single sentences. No elaboration.".into(),
             //         spec  tech  temp  cent  conf
-            vector: [0.5,  0.3,  0.5,  1.0,  0.6],
+            vector: vec![0.5,  0.3,  0.5,  1.0,  0.6],
         },
         IdentityFile {
             address: "dworld://council.local/identities/OBSERVER".into(),
@@ -189,7 +182,7 @@ without interpretation or judgment. When given any situation, you produce
 a factual description of what is occurring — not what it means.\n\
 Your outputs are present-tense, concrete, and observation-only.".into(),
             //         spec  tech  temp  cent  conf
-            vector: [0.4,  0.2,  0.3,  0.7,  0.95],
+            vector: vec![0.4,  0.2,  0.3,  0.7,  0.95],
         },
     ]
 }
@@ -204,12 +197,12 @@ mod tests {
         assert_eq!(store.len(), 5);
 
         // A highly technical, specific query should hit ENGINEER
-        let engineer_query = [0.85, 0.95, 0.1, 0.4, 0.9f32];
+        let engineer_query = [0.85f32, 0.95, 0.1, 0.4, 0.9];
         let hit = store.nearest(&engineer_query).unwrap();
         assert_eq!(hit.address, "dworld://council.local/identities/ENGINEER");
 
         // A high-centrality, low-specificity query should hit SYNTHESIZER
-        let synth_query = [0.4, 0.2, 0.5, 0.95, 0.5f32];
+        let synth_query = [0.4f32, 0.2, 0.5, 0.95, 0.5];
         let hit = store.nearest(&synth_query).unwrap();
         assert_eq!(hit.address, "dworld://council.local/identities/SYNTHESIZER");
     }
@@ -218,7 +211,7 @@ mod tests {
     fn single_file_store_returns_that_file() {
         let files = vec![seed_identities().remove(0)];
         let store = IdentityStore::build(files);
-        let any_query = [0.5; DIMS];
+        let any_query = [0.5f32; 5];
         let hit = store.nearest(&any_query).unwrap();
         assert_eq!(hit.address, "dworld://council.local/identities/PHILOSOPHER");
     }
@@ -226,7 +219,7 @@ mod tests {
     #[test]
     fn empty_store_returns_none() {
         let store = IdentityStore::build(vec![]);
-        let any_query = [0.5; DIMS];
+        let any_query = [0.5f32; 5];
         assert!(store.nearest(&any_query).is_none());
     }
 }
