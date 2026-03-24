@@ -16,14 +16,22 @@
 //! client_rx used in this handler). The tick loop sends filtered physics updates
 //! per-client via those channels. Global events (PLAYER_JOINED/LEFT, TICK_SYNC)
 //! go to all clients via ClientManager::send_to_all.
+//!
+//! DEBUG LOGGING CHECKPOINTS:
+//!   [L1] TCP_ACCEPT   — Connection reached server socket
+//!   [L2] WS_UPGRADE   — WebSocket handshake completed
+//!   [L3] PLAYER_JOIN  — Entity spawned, registered
+//!   [L4] BROADCAST     — State sent to clients
 
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::SystemTime;
 use tokio::net::TcpListener;
 use tokio::sync::{RwLock, mpsc};
 use tokio_tungstenite::accept_async;
 use tokio_tungstenite::tungstenite::Message;
 use futures_util::{StreamExt, SinkExt};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use nexus_core::types::{ChangeRequest, ChangeType, SpatialManifest};
 use nexus_schema::SchemaRegistry;
@@ -31,6 +39,20 @@ use nexus_schema::SchemaRegistry;
 use crate::{WorldState, QueuedAction};
 use crate::clients::ClientManager;
 use crate::protocol;
+
+static CONNECTION_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+fn timestamp_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
+fn log_checkpoint(conn_id: u64, layer: &str, peer: &SocketAddr, msg: &str) {
+    eprintln!("[{:>13}] [{}] conn={:03} {} {}", 
+        timestamp_ms(), layer, conn_id, peer, msg);
+}
 
 /// Run the WebSocket server.
 pub async fn run(
@@ -46,7 +68,11 @@ pub async fn run(
 
     loop {
         let (stream, peer_addr) = listener.accept().await?;
-        tracing::info!("New TCP connection from {}", peer_addr);
+        
+        // [L1] TCP_ACCEPT — Connection reached server socket
+        let conn_id = CONNECTION_COUNTER.fetch_add(1, Ordering::Relaxed);
+        log_checkpoint(conn_id, "TCP_ACCEPT", &peer_addr, "SYN received, accepting");
+        tracing::info!("[L1] TCP_ACCEPT conn={:03} from {}", conn_id, peer_addr);
 
         let state = state.clone();
         let action_tx = action_tx.clone();
@@ -55,7 +81,7 @@ pub async fn run(
         let schema_registry = schema_registry.clone();
         tokio::spawn(async move {
             if let Err(e) = handle_connection(
-                stream, peer_addr, state, action_tx, client_manager, schema_registry,
+                stream, peer_addr, state, action_tx, client_manager, schema_registry, conn_id,
             ).await {
                 tracing::error!("Connection {} error: {}", peer_addr, e);
             }
@@ -70,11 +96,14 @@ async fn handle_connection(
     action_tx: mpsc::UnboundedSender<QueuedAction>,
     client_manager: Arc<RwLock<ClientManager>>,
     schema_registry: Arc<SchemaRegistry>,
+    conn_id: u64,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let ws_stream = accept_async(stream).await?;
     let (mut ws_write, mut ws_read) = ws_stream.split();
 
-    tracing::info!("{} WebSocket upgraded", peer_addr);
+    // [L2] WS_UPGRADE — WebSocket handshake completed
+    log_checkpoint(conn_id, "WS_UPGRADE", &peer_addr, "HTTP→WS upgrade complete");
+    tracing::info!("[L2] WS_UPGRADE conn={:03} {} WebSocket established", conn_id, peer_addr);
 
     // Per-client channel: tick loop pushes filtered physics updates via client_tx,
     // this handler forwards them to the WebSocket via client_rx.
@@ -94,22 +123,36 @@ async fn handle_connection(
                         };
 
                         // Register client — stores client_tx so tick loop can send to it
-                        {
+                        let client_count = {
                             let mut cm = client_manager.write().await;
                             cm.add(peer_addr, entity_id, client_tx.clone());
-                        }
+                            cm.count()
+                        };
 
                         // Send HANDSHAKE_RESPONSE
                         let response = protocol::encode_handshake_response(entity_id);
                         ws_write.send(Message::Binary(response)).await?;
                         tracing::info!("{} HANDSHAKE accepted → entity {}", peer_addr, entity_id);
 
+                        // [L3] PLAYER_JOIN — Entity spawned and registered
+                        log_checkpoint(conn_id, "PLAYER_JOIN", &peer_addr, 
+                            &format!("entity={} total_clients={}", entity_id, client_count));
+                        tracing::info!("[L3] PLAYER_JOIN conn={:03} {} entity={} clients={}", 
+                            conn_id, peer_addr, entity_id, client_count);
+
                         // Broadcast PLAYER_JOINED to all clients (including the new one)
                         let joined_msg = protocol::encode_player_joined(entity_id);
-                        {
+                        let broadcast_count = {
                             let cm = client_manager.read().await;
-                            cm.send_to_all(joined_msg);
-                        }
+                            cm.send_to_all(joined_msg.clone());
+                            cm.count()
+                        };
+                        
+                        // [L4] BROADCAST — State sent to all clients
+                        log_checkpoint(conn_id, "BROADCAST", &peer_addr, 
+                            &format!("PLAYER_JOINED sent to {} clients", broadcast_count));
+                        tracing::info!("[L4] BROADCAST conn={:03} {} PLAYER_JOINED→{} clients", 
+                            conn_id, peer_addr, broadcast_count);
 
                         // Send initial TICK_SYNC
                         let tick = {
@@ -269,10 +312,11 @@ async fn handle_connection(
         let mut world = state.write().await;
         world.despawn_player(entity_id);
     }
-    {
+    let remaining_clients = {
         let mut cm = client_manager.write().await;
         cm.remove(&peer_addr);
-    }
+        cm.count()
+    };
 
     let left_msg = protocol::encode_player_left(entity_id);
     {
@@ -280,6 +324,10 @@ async fn handle_connection(
         cm.send_to_all(left_msg);
     }
 
-    tracing::info!("{} cleaned up (entity {})", peer_addr, entity_id);
+    // [DISCONNECT] Player left
+    log_checkpoint(conn_id, "PLAYER_LEFT", &peer_addr, 
+        &format!("entity={} remaining_clients={}", entity_id, remaining_clients));
+    tracing::info!("[DISCONNECT] conn={:03} {} entity={} left, {} clients remain", 
+        conn_id, peer_addr, entity_id, remaining_clients);
     Ok(())
 }

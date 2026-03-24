@@ -48,6 +48,94 @@ const GRAVITY = 15.0         // m/s² downward
 const ISLAND_RADIUS = 50     // metres — must match Terrain.tsx
 
 // ============================================================================
+// Vertical Physics System
+// Handles jump, gravity, ground snap, and stair climbing — independent of XZ.
+// Extracted to a separate function so it runs every frame (including when idle).
+// ============================================================================
+
+interface VerticalPhysicsParams {
+  camera: THREE.Camera
+  isGroundedRef: React.MutableRefObject<boolean>
+  verticalVelRef: React.MutableRefObject<number>
+  currentFloorYRef: React.MutableRefObject<number | null>
+  stairState: { current: { state: 'FLAT' | 'ON_STAIRS'; currentStairId: string | null } }
+  staircases: StaircaseConfig[]
+  flyMode: boolean
+  dt: number
+}
+
+function updateVerticalPhysics(params: VerticalPhysicsParams): void {
+  const {
+    camera,
+    isGroundedRef,
+    verticalVelRef,
+    currentFloorYRef,
+    stairState,
+    staircases,
+    flyMode,
+    dt,
+  } = params
+
+  if (flyMode) {
+    const dist = SPEED * dt
+    if (KEYS.space) camera.position.y += dist
+    if (KEYS.shift && !KEYS.w && !KEYS.s && !KEYS.a && !KEYS.d) {
+      camera.position.y -= dist
+    }
+    return
+  }
+
+  if (stairState.current.state === 'ON_STAIRS') {
+    const stair = staircases.find(s => s.id === stairState.current.currentStairId)
+    if (!stair) return
+
+    _currentXZ.set(camera.position.x, 0, camera.position.z)
+
+    if (!isWithinStairWidthXZ(_currentXZ, stair.centerLineXZ, stair.width)) {
+      stair.centerLineXZ.closestPointToPoint(_currentXZ, false, _closestPoint)
+      _clampDiff.subVectors(_currentXZ, _closestPoint)
+      _clampDiff.normalize().multiplyScalar(stair.width)
+      const clampedXZ = _closestPoint.clone().add(_clampDiff)
+      camera.position.x = clampedXZ.x
+      camera.position.z = clampedXZ.z
+    }
+
+    _boundedXZ.set(camera.position.x, 0, camera.position.z)
+    _bottomXZ.set(stair.bottomCenter.x, 0, stair.bottomCenter.z)
+    _relativeXZ.subVectors(_boundedXZ, _bottomXZ)
+
+    const distProj = _relativeXZ.dot(stair.stairDirectionXZ)
+    const progress = THREE.MathUtils.clamp(distProj / stair.stairLengthXZ, 0, 1)
+
+    camera.position.y = THREE.MathUtils.lerp(
+      stair.bottomFloorY, stair.topFloorY, progress
+    ) + EYE_HEIGHT
+    return
+  }
+
+  const floorY = currentFloorYRef.current || 0
+  const targetY = floorY + EYE_HEIGHT
+
+  if (KEYS.space && isGroundedRef.current) {
+    verticalVelRef.current = JUMP_VELOCITY
+    isGroundedRef.current = false
+  }
+
+  if (!isGroundedRef.current) {
+    verticalVelRef.current -= GRAVITY * dt
+    camera.position.y += verticalVelRef.current * dt
+
+    if (camera.position.y <= targetY) {
+      camera.position.y = targetY
+      verticalVelRef.current = 0
+      isGroundedRef.current = true
+    }
+  } else {
+    camera.position.y = THREE.MathUtils.lerp(camera.position.y, targetY, 0.3)
+  }
+}
+
+// ============================================================================
 // Stair System (ported from ELEV8 lib/staircases.ts)
 // ============================================================================
 
@@ -285,6 +373,19 @@ export function PlayerController() {
 
     const hasInput = _velocity.lengthSq() > 0
 
+    // Update vertical physics EVERY FRAME (jump, gravity, stairs).
+    // This must run before the hasInput early-return so jump works when idle.
+    updateVerticalPhysics({
+      camera,
+      isGroundedRef,
+      verticalVelRef,
+      currentFloorYRef,
+      stairState: stairStateRef,
+      staircases: _staircases,
+      flyMode: _flyMode,
+      dt,
+    })
+
     // Always send movement to server — including (0,0,0) when stopped.
     // Server uses direct velocity set, so an explicit zero action stops the entity immediately.
     // Without this, the server body keeps its last velocity indefinitely.
@@ -448,78 +549,9 @@ export function PlayerController() {
         camera.position.x * camera.position.x + camera.position.z * camera.position.z
       )
       if (distFromCenter > ISLAND_RADIUS - 1.0) {
-        // Push back toward center
         const pushBack = (distFromCenter - (ISLAND_RADIUS - 1.0)) / distFromCenter
         camera.position.x -= camera.position.x * pushBack
         camera.position.z -= camera.position.z * pushBack
-      }
-    }
-
-    // ================================================================
-    // VERTICAL POSITION (Y) — jump physics + ground collision
-    // ================================================================
-
-    if (_flyMode) {
-      const dist = SPEED * dt * (KEYS.shift ? SPRINT_MULT : 1.0)
-      if (KEYS.space) camera.position.y += dist
-      if (KEYS.shift && !KEYS.w && !KEYS.s && !KEYS.a && !KEYS.d) {
-        camera.position.y -= dist
-      }
-    } else if (stairStateRef.current.state === 'ON_STAIRS') {
-      // ON_STAIRS: Y is a pure linear function of XZ progress along the stair
-      // This is the key insight from ELEV8 — Y is DECOUPLED from look angle
-      const stair = _staircases.find(s => s.id === stairStateRef.current.currentStairId)
-      if (!stair) return // guard: ON_STAIRS state should always have a valid stairId
-
-      _currentXZ.set(camera.position.x, 0, camera.position.z)
-
-      // Width boundary clamping — prevent sideways clipping off stair edge
-      if (!isWithinStairWidthXZ(_currentXZ, stair.centerLineXZ, stair.width)) {
-        stair.centerLineXZ.closestPointToPoint(_currentXZ, false, _closestPoint)
-        _clampDiff.subVectors(_currentXZ, _closestPoint)
-        _clampDiff.normalize().multiplyScalar(stair.width)
-        const clampedXZ = _closestPoint.clone().add(_clampDiff)
-        camera.position.x = clampedXZ.x
-        camera.position.z = clampedXZ.z
-      }
-
-      // Mathematical pure progression: Y = lerp(bottomY, topY, progress)
-      _boundedXZ.set(camera.position.x, 0, camera.position.z)
-      _bottomXZ.set(stair.bottomCenter.x, 0, stair.bottomCenter.z)
-      _relativeXZ.subVectors(_boundedXZ, _bottomXZ)
-
-      const distProj = _relativeXZ.dot(stair.stairDirectionXZ)
-      const progress = THREE.MathUtils.clamp(distProj / stair.stairLengthXZ, 0, 1)
-
-      // Absolute snap — no physics, no bouncing, just math
-      camera.position.y = THREE.MathUtils.lerp(
-        stair.bottomFloorY, stair.topFloorY, progress
-      ) + EYE_HEIGHT
-    } else {
-      // FLAT: jump physics + gravity + ground collision
-      const floorY = (currentFloorYRef.current || 0)
-      const targetY = floorY + EYE_HEIGHT
-
-      // Jump initiation
-      if (KEYS.space && isGroundedRef.current) {
-        verticalVelRef.current = JUMP_VELOCITY
-        isGroundedRef.current = false
-      }
-
-      if (!isGroundedRef.current) {
-        // In air — apply gravity
-        verticalVelRef.current -= GRAVITY * dt
-        camera.position.y += verticalVelRef.current * dt
-
-        // Ground collision
-        if (camera.position.y <= targetY) {
-          camera.position.y = targetY
-          verticalVelRef.current = 0
-          isGroundedRef.current = true
-        }
-      } else {
-        // On ground — snap to floor height
-        camera.position.y = THREE.MathUtils.lerp(camera.position.y, targetY, 0.3)
       }
     }
   })

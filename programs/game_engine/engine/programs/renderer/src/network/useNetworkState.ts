@@ -53,7 +53,7 @@ const MSG_HANDSHAKE_RESPONSE = 0x0101
 const MSG_PLAYER_ACTION = 0x0200
 const MSG_ENTER = 0x0300            // C→S: request world manifest
 const MSG_SPATIAL_MANIFEST = 0x0301 // S→C: world surface descriptor
-const MSG_AGENT_TASK = 0x0400       // C→S (agent): intent + selected action
+// MSG_AGENT_TASK = 0x0400 reserved for agent system (not used in Phase 0)
 const MSG_AGENT_BROADCAST = 0x0401  // S→C: agent task broadcast to all clients
 // MSG_SCHEMA_QUERY/RESPONSE/NOT_FOUND imported from schema.ts above
 
@@ -674,8 +674,9 @@ function _handlePlayerJoined(payload: ArrayBuffer): void {
   if (payload.byteLength < 4) return
   const view = new DataView(payload)
   const id = view.getUint32(0, true)
-  console.log(`[NEXUS Net] Player ${id} joined`)
+  console.log(`[NEXUS Net] ★ Player ${id} joined — total entities: ${_entities.size + 1}`)
   _entities.set(id, { id, x: 0, y: 0, z: 0, yaw: 0 })
+  console.log(`[NEXUS Net] _entities now contains:`, Array.from(_entities.keys()))
 }
 
 function _handlePlayerLeft(payload: ArrayBuffer): void {

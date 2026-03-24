@@ -67,7 +67,6 @@ export class PlaneVehicle implements VehicleController {
 
   // Camera (exact values from controls.js)
   private cameraOffset = new THREE.Vector3(0, 5, 16)
-  private cameraLerpSpeed = 0.04
   private cameraTilt = 0.7
 
   // Model correction (180° Y — depends on GLB baked rotation)
