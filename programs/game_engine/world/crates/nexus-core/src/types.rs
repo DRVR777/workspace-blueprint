@@ -404,6 +404,194 @@ pub struct WorldStateSnapshot {
 pub use crate::config::WorldPhysicsConfig;
 
 // =============================================================================
+// SemanticPacket — the atom of the semantic routing layer
+//
+// A packet is the unit of work that moves through the identity-file network.
+// It carries typed data (one of 5 kinds) and a metadata chain that grows
+// with every hop. The chain is the packet's working memory — the accumulated
+// record of every identity file that shaped it. No agent stores state.
+// The packet carries everything forward.
+//
+// Five data types cover everything that can move through the network:
+//
+//   Text     — knowledge, natural language, questions, answers
+//   Program  — executable code, config, schema definitions
+//   Spatial  — geometry, position, SpatialManifest payloads
+//   Signal   — events, measurements, quality scores, ticks
+//   Identity — identity file content, agent profiles
+//
+// These are not arbitrary. They map to the five things that can exist
+// as a node in the semantic field: a thought, a program, a place,
+// an event, and a perspective. Every other data shape is a combination
+// of these five.
+// =============================================================================
+
+/// The five kinds of payload a SemanticPacket can carry.
+///
+/// Typed so that identity files can declare which types they accept
+/// in their surface field — a Text-only identity will not activate
+/// on a Program packet. Type mismatch is total internal reflection.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PacketData {
+    /// Natural language content: questions, answers, summaries, knowledge.
+    Text(String),
+
+    /// Executable or interpretable code, config files, schema definitions,
+    /// build instructions. The content is meant to be run, not just read.
+    Program {
+        /// Language or runtime identifier: "rust", "python", "json", "shell", etc.
+        lang: String,
+        /// Source code or serialized program content.
+        source: String,
+        /// Optional entry point or invocation hint.
+        entrypoint: Option<String>,
+    },
+
+    /// 3D spatial data: geometry descriptors, SpatialManifest payloads,
+    /// positions, transforms, bounding volumes.
+    Spatial {
+        /// dworld:// URI this geometry is associated with.
+        address: URI,
+        /// Serialized spatial payload (FlatBuffers bytes or JSON).
+        payload: Vec<u8>,
+    },
+
+    /// Events, measurements, quality scores, tick records.
+    /// The immutable signal layer — what happened, when, and how well.
+    Signal {
+        /// Event type identifier (e.g. "quality_score", "tick", "activation").
+        kind: String,
+        /// Numeric measurement attached to this signal. None = boolean event.
+        value: Option<f64>,
+        /// Raw payload for structured signal data.
+        payload: Vec<u8>,
+    },
+
+    /// Identity file content — the lens itself traveling as data.
+    /// Used when identity files are created, updated, or transmitted
+    /// as keys between worlds.
+    Identity {
+        /// dworld:// address of this identity file.
+        address: URI,
+        /// Markdown content of the identity file.
+        content: String,
+        /// Embedding vector. None = not yet indexed.
+        vector: Option<[f32; 5]>,
+    },
+}
+
+/// One entry in the packet's provenance chain.
+///
+/// Written by the routing layer after each activation. The packet
+/// carries its own history. No external memory needed.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HopRecord {
+    /// Monotonically increasing hop number within this chain (0-indexed).
+    pub hop:          u32,
+    /// Timestamp of this activation.
+    pub timestamp_ms: TimestampMs,
+    /// dworld:// address of the identity file that processed this hop.
+    pub identity:     URI,
+    /// Embedding vector of the identity file at activation time.
+    /// Used for drift detection and quality attribution.
+    pub vector:       Option<[f32; 5]>,
+    /// Quality score assigned to the output of this hop. None = not yet scored.
+    pub quality:      Option<f32>,
+}
+
+/// The semantic packet — atom of the identity-file routing network.
+///
+/// Enters the field with `data` and zero hops. Each time it activates
+/// an identity file, a `HopRecord` is appended to `meta`. The chain
+/// grows until the packet reaches a terminal condition (depth exceeded,
+/// output classified as final, or quality threshold met).
+///
+/// The packet is the conversation. Identity files are lenses it passes through.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SemanticPacket {
+    /// Unique identifier for this packet. Never reused.
+    pub id:          u64,
+    /// Chain ID — groups all packets that belong to one logical request.
+    /// Set by the originating caller. All hops in one reasoning chain share this.
+    pub chain_id:    u64,
+    /// The typed payload.
+    pub data:        PacketData,
+    /// Growing provenance chain. Empty on creation. One record per hop.
+    pub meta:        Vec<HopRecord>,
+    /// Maximum number of hops before this packet is forced to terminal.
+    /// Prevents infinite loops. Default: 16.
+    pub depth_limit: u32,
+    /// Origin address — who sent this packet into the field.
+    pub origin:      URI,
+    /// Terminal flag. Set by the routing layer when output is final.
+    pub terminal:    bool,
+}
+
+impl SemanticPacket {
+    /// Create a new packet with no hop history.
+    pub fn new(id: u64, chain_id: u64, data: PacketData, origin: URI) -> Self {
+        Self {
+            id,
+            chain_id,
+            data,
+            meta: Vec::new(),
+            depth_limit: 16,
+            origin,
+            terminal: false,
+        }
+    }
+
+    /// Record a hop. Called by the routing layer after each identity activation.
+    /// Returns the new hop number.
+    pub fn push_hop(
+        &mut self,
+        timestamp_ms: TimestampMs,
+        identity: URI,
+        vector: Option<[f32; 5]>,
+    ) -> u32 {
+        let hop = self.meta.len() as u32;
+        self.meta.push(HopRecord {
+            hop,
+            timestamp_ms,
+            identity,
+            vector,
+            quality: None,
+        });
+        hop
+    }
+
+    /// Set the quality score on the most recent hop.
+    /// Called by the quality-score system after evaluating the hop's output.
+    pub fn score_last_hop(&mut self, quality: f32) {
+        if let Some(record) = self.meta.last_mut() {
+            record.quality = Some(quality);
+        }
+    }
+
+    /// True if this packet has exceeded its depth limit.
+    pub fn depth_exceeded(&self) -> bool {
+        self.meta.len() as u32 >= self.depth_limit
+    }
+
+    /// The identity file that last processed this packet, if any.
+    pub fn last_identity(&self) -> Option<&str> {
+        self.meta.last().map(|r| r.identity.as_str())
+    }
+
+    /// Mean quality score across all scored hops. None if no hops are scored.
+    pub fn mean_quality(&self) -> Option<f32> {
+        let scored: Vec<f32> = self.meta.iter()
+            .filter_map(|r| r.quality)
+            .collect();
+        if scored.is_empty() {
+            None
+        } else {
+            Some(scored.iter().sum::<f32>() / scored.len() as f32)
+        }
+    }
+}
+
+// =============================================================================
 // Collision Data — from simulation-contract.md
 // =============================================================================
 
@@ -419,4 +607,105 @@ pub struct CollisionPair {
     pub body_a_id: ObjectId,
     pub body_b_id: ObjectId,
     pub data: CollisionData,
+}
+
+#[cfg(test)]
+mod semantic_packet_tests {
+    use super::*;
+
+    fn ts() -> TimestampMs { 1_000_000 }
+
+    #[test]
+    fn new_packet_has_no_hops() {
+        let p = SemanticPacket::new(1, 1, PacketData::Text("hello".into()), "dworld://test/".into());
+        assert!(p.meta.is_empty());
+        assert!(!p.terminal);
+        assert!(!p.depth_exceeded());
+        assert_eq!(p.last_identity(), None);
+        assert_eq!(p.mean_quality(), None);
+    }
+
+    #[test]
+    fn hop_chain_grows_with_each_activation() {
+        let mut p = SemanticPacket::new(2, 2, PacketData::Text("q".into()), "dworld://origin/".into());
+        let h0 = p.push_hop(ts(), "dworld://identity/A".into(), None);
+        let h1 = p.push_hop(ts() + 1, "dworld://identity/B".into(), Some([0.8, 0.3, 0.5, 0.9, 0.7]));
+        assert_eq!(h0, 0);
+        assert_eq!(h1, 1);
+        assert_eq!(p.meta.len(), 2);
+        assert_eq!(p.last_identity(), Some("dworld://identity/B"));
+    }
+
+    #[test]
+    fn quality_scoring_on_last_hop() {
+        let mut p = SemanticPacket::new(3, 3, PacketData::Text("q".into()), "dworld://x/".into());
+        p.push_hop(ts(), "dworld://identity/A".into(), None);
+        p.push_hop(ts() + 1, "dworld://identity/B".into(), None);
+        p.score_last_hop(0.9);
+        assert_eq!(p.meta[0].quality, None);
+        assert_eq!(p.meta[1].quality, Some(0.9));
+    }
+
+    #[test]
+    fn mean_quality_ignores_unscored_hops() {
+        let mut p = SemanticPacket::new(4, 4, PacketData::Text("q".into()), "dworld://x/".into());
+        p.push_hop(ts(), "dworld://a/".into(), None);
+        p.push_hop(ts(), "dworld://b/".into(), None);
+        p.push_hop(ts(), "dworld://c/".into(), None);
+        // Score only first and last
+        p.meta[0].quality = Some(0.8);
+        p.meta[2].quality = Some(0.4);
+        let mean = p.mean_quality().unwrap();
+        assert!((mean - 0.6).abs() < 1e-5);
+    }
+
+    #[test]
+    fn depth_exceeded_when_hops_reach_limit() {
+        let mut p = SemanticPacket::new(5, 5, PacketData::Text("q".into()), "dworld://x/".into());
+        p.depth_limit = 3;
+        for i in 0..3 {
+            assert!(!p.depth_exceeded());
+            p.push_hop(ts() + i as u64, format!("dworld://{i}/"), None);
+        }
+        assert!(p.depth_exceeded());
+    }
+
+    #[test]
+    fn program_packet_carries_lang_and_source() {
+        let p = SemanticPacket::new(6, 6,
+            PacketData::Program {
+                lang: "rust".into(),
+                source: "fn main() {}".into(),
+                entrypoint: Some("main".into()),
+            },
+            "dworld://compiler/".into(),
+        );
+        match &p.data {
+            PacketData::Program { lang, source, entrypoint } => {
+                assert_eq!(lang, "rust");
+                assert_eq!(source, "fn main() {}");
+                assert_eq!(entrypoint.as_deref(), Some("main"));
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn identity_packet_carries_vector() {
+        let vec = [0.9, 0.1, 0.5, 0.8, 0.3];
+        let p = SemanticPacket::new(7, 7,
+            PacketData::Identity {
+                address: "dworld://council/ORACLE".into(),
+                content: "# ORACLE\nYou are the oracle.".into(),
+                vector: Some(vec),
+            },
+            "dworld://make_agent/".into(),
+        );
+        match &p.data {
+            PacketData::Identity { vector, .. } => {
+                assert_eq!(*vector, Some(vec));
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
 }
