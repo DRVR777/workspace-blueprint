@@ -1,0 +1,12 @@
+[package]
+name = "nexus-events"
+description = "NEXUS event log — append-only SQLite record of every terminal packet"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+nexus-core = { workspace = true }
+thiserror  = "1"
+
+# Embedded SQLite — bundled compiles SQLite from source, no system dep required
+rusqlite = { version = "0.32", features = ["bundled"] }
