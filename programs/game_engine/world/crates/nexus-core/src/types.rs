@@ -55,6 +55,7 @@ pub struct PacketHeader {
 ///   for each surface: [2+N] action name
 ///   [2+N] agent       — HTTPS endpoint of the agent that governs this world
 ///   [2+N] payment     — payment address (Solana pubkey, Ethereum address, etc.)
+///   [2+N] semantic_identity — dworld:// address of the identity file governing this world
 #[derive(Debug, Clone, PartialEq)]
 pub struct SpatialManifest {
     /// The canonical address of this world.
@@ -68,6 +69,15 @@ pub struct SpatialManifest {
     pub agent:     Option<String>,
     /// Payment address for access or actions that have a cost, if any.
     pub payment:   Option<String>,
+    /// dworld:// address of the identity file that governs this world's semantic behavior.
+    ///
+    /// This is the link between the physics layer and the semantic layer.
+    /// When a player enters this world, the server routes a SemanticPacket
+    /// to this identity. The packet's path through the identity field leaves
+    /// a physical trail via world_position on each hop.
+    ///
+    /// None = world has no semantic identity (pure physics, no routing).
+    pub semantic_identity: Option<URI>,
 }
 
 impl SpatialManifest {
@@ -84,6 +94,7 @@ impl SpatialManifest {
             ],
             agent: None,
             payment: None,
+            semantic_identity: None,
         }
     }
 }
@@ -497,6 +508,11 @@ pub struct HopRecord {
     /// Used for drift detection and quality attribution.
     /// Length depends on the embedding model (384 for AllMiniLML6V2).
     pub vector:       Option<Vec<f32>>,
+    /// 3D world coordinate of the identity file at activation time.
+    /// Set from IdentityFile::world_coord at the moment of routing.
+    /// None = identity has no physical position (pre-layout).
+    /// Together, the hop records form the packet's physical trail through the world.
+    pub world_coord:  Option<[f32; 3]>,
     /// Quality score assigned to the output of this hop. None = not yet scored.
     pub quality:      Option<f32>,
 }
@@ -509,24 +525,30 @@ pub struct HopRecord {
 /// output classified as final, or quality threshold met).
 ///
 /// The packet is the conversation. Identity files are lenses it passes through.
+/// The hop chain is its working memory. The world_position is its physical trail.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SemanticPacket {
     /// Unique identifier for this packet. Never reused.
-    pub id:          u64,
+    pub id:             u64,
     /// Chain ID — groups all packets that belong to one logical request.
     /// Set by the originating caller. All hops in one reasoning chain share this.
-    pub chain_id:    u64,
+    pub chain_id:       u64,
     /// The typed payload.
-    pub data:        PacketData,
+    pub data:           PacketData,
     /// Growing provenance chain. Empty on creation. One record per hop.
-    pub meta:        Vec<HopRecord>,
+    pub meta:           Vec<HopRecord>,
     /// Maximum number of hops before this packet is forced to terminal.
     /// Prevents infinite loops. Default: 16.
-    pub depth_limit: u32,
+    pub depth_limit:    u32,
     /// Origin address — who sent this packet into the field.
-    pub origin:      URI,
+    pub origin:         URI,
     /// Terminal flag. Set by the routing layer when output is final.
-    pub terminal:    bool,
+    pub terminal:       bool,
+    /// Current 3D position in the physical world.
+    /// Updated in push_hop to the identity file's world_coord.
+    /// None until the packet hops to an identity that has a world_coord.
+    /// The full trail is in meta[*].world_coord — this field is the most recent.
+    pub world_position: Option<[f32; 3]>,
 }
 
 impl SemanticPacket {
@@ -540,23 +562,34 @@ impl SemanticPacket {
             depth_limit: 16,
             origin,
             terminal: false,
+            world_position: None,
         }
     }
 
     /// Record a hop. Called by the routing layer after each identity activation.
+    ///
+    /// `world_coord` is the 3D position of the identity file in the physical world.
+    /// When Some, it updates `self.world_position` and is stored in the HopRecord.
+    /// The sequence of HopRecord::world_coord values is the packet's physical trail.
+    ///
     /// Returns the new hop number.
     pub fn push_hop(
         &mut self,
         timestamp_ms: TimestampMs,
         identity: URI,
         vector: Option<Vec<f32>>,
+        world_coord: Option<[f32; 3]>,
     ) -> u32 {
+        if let Some(coord) = world_coord {
+            self.world_position = Some(coord);
+        }
         let hop = self.meta.len() as u32;
         self.meta.push(HopRecord {
             hop,
             timestamp_ms,
             identity,
             vector,
+            world_coord,
             quality: None,
         });
         hop
@@ -625,13 +658,34 @@ mod semantic_packet_tests {
         assert!(!p.depth_exceeded());
         assert_eq!(p.last_identity(), None);
         assert_eq!(p.mean_quality(), None);
+        assert_eq!(p.world_position, None);
+    }
+
+    #[test]
+    fn world_position_tracks_hop_trail() {
+        let mut p = SemanticPacket::new(8, 8, PacketData::Text("q".into()), "dworld://x/".into());
+        // First hop: identity has no world coord
+        p.push_hop(ts(), "dworld://a/".into(), None, None);
+        assert_eq!(p.world_position, None);
+        assert_eq!(p.meta[0].world_coord, None);
+        // Second hop: identity has a world coord
+        p.push_hop(ts() + 1, "dworld://b/".into(), None, Some([10.0, 20.0, 30.0]));
+        assert_eq!(p.world_position, Some([10.0, 20.0, 30.0]));
+        assert_eq!(p.meta[1].world_coord, Some([10.0, 20.0, 30.0]));
+        // Third hop: identity has a different world coord — packet moves
+        p.push_hop(ts() + 2, "dworld://c/".into(), None, Some([40.0, 50.0, 60.0]));
+        assert_eq!(p.world_position, Some([40.0, 50.0, 60.0]));
+        // Full trail preserved in hop records
+        assert_eq!(p.meta[0].world_coord, None);
+        assert_eq!(p.meta[1].world_coord, Some([10.0, 20.0, 30.0]));
+        assert_eq!(p.meta[2].world_coord, Some([40.0, 50.0, 60.0]));
     }
 
     #[test]
     fn hop_chain_grows_with_each_activation() {
         let mut p = SemanticPacket::new(2, 2, PacketData::Text("q".into()), "dworld://origin/".into());
-        let h0 = p.push_hop(ts(), "dworld://identity/A".into(), None);
-        let h1 = p.push_hop(ts() + 1, "dworld://identity/B".into(), Some(vec![0.8f32, 0.3, 0.5, 0.9, 0.7]));
+        let h0 = p.push_hop(ts(), "dworld://identity/A".into(), None, None);
+        let h1 = p.push_hop(ts() + 1, "dworld://identity/B".into(), Some(vec![0.8f32, 0.3, 0.5, 0.9, 0.7]), Some([1.0, 2.0, 3.0]));
         assert_eq!(h0, 0);
         assert_eq!(h1, 1);
         assert_eq!(p.meta.len(), 2);
@@ -641,8 +695,8 @@ mod semantic_packet_tests {
     #[test]
     fn quality_scoring_on_last_hop() {
         let mut p = SemanticPacket::new(3, 3, PacketData::Text("q".into()), "dworld://x/".into());
-        p.push_hop(ts(), "dworld://identity/A".into(), None);
-        p.push_hop(ts() + 1, "dworld://identity/B".into(), None);
+        p.push_hop(ts(), "dworld://identity/A".into(), None, None);
+        p.push_hop(ts() + 1, "dworld://identity/B".into(), None, None);
         p.score_last_hop(0.9);
         assert_eq!(p.meta[0].quality, None);
         assert_eq!(p.meta[1].quality, Some(0.9));
@@ -651,9 +705,9 @@ mod semantic_packet_tests {
     #[test]
     fn mean_quality_ignores_unscored_hops() {
         let mut p = SemanticPacket::new(4, 4, PacketData::Text("q".into()), "dworld://x/".into());
-        p.push_hop(ts(), "dworld://a/".into(), None);
-        p.push_hop(ts(), "dworld://b/".into(), None);
-        p.push_hop(ts(), "dworld://c/".into(), None);
+        p.push_hop(ts(), "dworld://a/".into(), None, None);
+        p.push_hop(ts(), "dworld://b/".into(), None, None);
+        p.push_hop(ts(), "dworld://c/".into(), None, None);
         // Score only first and last
         p.meta[0].quality = Some(0.8);
         p.meta[2].quality = Some(0.4);
@@ -667,7 +721,7 @@ mod semantic_packet_tests {
         p.depth_limit = 3;
         for i in 0..3 {
             assert!(!p.depth_exceeded());
-            p.push_hop(ts() + i as u64, format!("dworld://{i}/"), None);
+            p.push_hop(ts() + i as u64, format!("dworld://{i}/"), None, None);
         }
         assert!(p.depth_exceeded());
     }

@@ -22,6 +22,18 @@ pub struct IdentityFile {
     /// Embedding vector. Determines position in the field.
     /// Phase 0: hand-crafted 5D. Phase 1+: 384D from AllMiniLML6V2.
     pub vector: Vec<f32>,
+    /// 3D coordinate in the physical world (the wire between semantic and physics layers).
+    ///
+    /// Set once at identity file creation from the force-directed layout algorithm
+    /// (bone 3c). None until layout runs — bone 1/2 operate with world_coord = None.
+    ///
+    /// When a packet hops to this identity, it inherits this coordinate:
+    /// packet.world_position = identity.world_coord. The packet's path through
+    /// the semantic field becomes a physical trail through the 3D world.
+    ///
+    /// Changed only by the reformation system (bone 4) after content rewrite + re-embed
+    /// + layout update. The lens does not have velocity — it has reformation.
+    pub world_coord: Option<[f32; 3]>,
 }
 
 // ─── HNSW integration ────────────────────────────────────────────────────────
@@ -143,6 +155,7 @@ question — you find the question beneath the question and answer that.\n\
 Your outputs are short and structurally dense. No padding.".into(),
             //         spec  tech  temp  cent  conf
             vector: vec![0.2,  0.1,  0.8,  0.9,  0.7],
+            world_coord: None, // assigned by bone 3c layout algorithm
         },
         IdentityFile {
             address: "dworld://council.local/identities/ENGINEER".into(),
@@ -153,6 +166,7 @@ No speculation — only what can be built and tested.\n\
 Your outputs are precise, minimal, and executable.".into(),
             //         spec  tech  temp  cent  conf
             vector: vec![0.9,  0.9,  0.2,  0.5,  0.9],
+            world_coord: None,
         },
         IdentityFile {
             address: "dworld://council.local/identities/CRITIC".into(),
@@ -163,6 +177,7 @@ the edge case that was ignored, the thing nobody wanted to say.\n\
 Your outputs are brief and pointed. One flaw per response, the most important one.".into(),
             //         spec  tech  temp  cent  conf
             vector: vec![0.7,  0.5,  0.5,  0.6,  0.8],
+            world_coord: None,
         },
         IdentityFile {
             address: "dworld://council.local/identities/SYNTHESIZER".into(),
@@ -173,6 +188,7 @@ underlying pattern that unifies them and state it in one sentence.\n\
 Your outputs are single sentences. No elaboration.".into(),
             //         spec  tech  temp  cent  conf
             vector: vec![0.5,  0.3,  0.5,  1.0,  0.6],
+            world_coord: None,
         },
         IdentityFile {
             address: "dworld://council.local/identities/OBSERVER".into(),
@@ -183,6 +199,7 @@ a factual description of what is occurring — not what it means.\n\
 Your outputs are present-tense, concrete, and observation-only.".into(),
             //         spec  tech  temp  cent  conf
             vector: vec![0.4,  0.2,  0.3,  0.7,  0.95],
+            world_coord: None,
         },
     ]
 }

@@ -69,7 +69,7 @@ impl Router {
             .unwrap_or_default()
             .as_millis() as TimestampMs;
 
-        packet.push_hop(now_ms, identity.address.clone(), Some(identity.vector.clone()));
+        packet.push_hop(now_ms, identity.address.clone(), Some(identity.vector.clone()), identity.world_coord);
 
         // ── Step 5: terminal check, then embed output ────────────────────
         if packet.terminal || packet.depth_exceeded() {
@@ -260,6 +260,7 @@ mod tests {
                 address: addr.to_string(),
                 content: content.to_string(),
                 vector,
+                world_coord: None,
             });
         }
 
@@ -291,6 +292,7 @@ mod tests {
             address: "dworld://memory/step1".into(),
             content: output1.clone(),
             vector: memory_vector,
+            world_coord: None, // layout assigns this in bone 3c
         });
 
         // ── Route Packet 2 carrying output1's text ────────────────────────────
