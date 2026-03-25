@@ -28,7 +28,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use axum::{
     Router,
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::IntoResponse,
     routing::{get, post},
     Json,
@@ -263,8 +263,13 @@ struct FieldWriteResponse {
 
 async fn post_field(
     State(state): State<Arc<HttpState>>,
+    headers: HeaderMap,
     Json(req): Json<FieldWriteRequest>,
 ) -> impl IntoResponse {
+    if !check_write_auth(&headers) {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+
     let address = req.address.unwrap_or_else(|| {
         format!(
             "dworld://field/{}",
@@ -374,10 +379,33 @@ struct IngestPropositionsResponse {
     addresses: Vec<String>,
 }
 
+/// Check bearer token for write endpoints.
+///
+/// NEXUS_INGEST_TOKEN unset = open (dev mode).
+/// NEXUS_INGEST_TOKEN set = Authorization: Bearer {token} required.
+/// Reads public (manifests, nearest, identities) — only writes are gated.
+fn check_write_auth(headers: &HeaderMap) -> bool {
+    match std::env::var("NEXUS_INGEST_TOKEN").ok() {
+        None => true, // dev mode — open
+        Some(token) => {
+            let provided = headers
+                .get("authorization")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("");
+            provided == format!("Bearer {token}")
+        }
+    }
+}
+
 async fn post_ingest_propositions(
     State(state): State<Arc<HttpState>>,
+    headers: HeaderMap,
     Json(req): Json<IngestPropositionsRequest>,
 ) -> impl IntoResponse {
+    if !check_write_auth(&headers) {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+
     let mut addresses = Vec::with_capacity(req.propositions.len());
 
     for (i, proposition) in req.propositions.iter().enumerate() {
