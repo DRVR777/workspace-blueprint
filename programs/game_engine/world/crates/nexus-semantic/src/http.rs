@@ -219,8 +219,16 @@ async fn get_identity(
     State(state): State<Arc<HttpState>>,
     Path(name): Path<String>,
 ) -> impl IntoResponse {
-    let address = format!("dworld://{name}");
-    match state.routing_loop.get_identity(&address) {
+    // Try exact address first, then the canonical seed prefix.
+    // GET /.dworld/identities/PHILOSOPHER
+    //   → tries "dworld://PHILOSOPHER"
+    //   → falls back to "dworld://council.local/identities/PHILOSOPHER"
+    let identity = state.routing_loop.get_identity(&format!("dworld://{name}"))
+        .or_else(|| state.routing_loop.get_identity(
+            &format!("dworld://council.local/identities/{name}")
+        ));
+
+    match identity {
         Some(id) => Json(IdentityResponse {
             address: id.address,
             content: id.content,
@@ -507,6 +515,27 @@ mod tests {
 
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn dworld_identity_resolves_seed_by_short_name() {
+        let state = make_state();
+        let app = router(state);
+
+        // Seed identities are stored as dworld://council.local/identities/PHILOSOPHER
+        // The short name lookup must resolve without the full prefix.
+        let req = Request::builder()
+            .uri("/.dworld/identities/PHILOSOPHER")
+            .body(Body::empty())
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let bytes = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(json["address"].as_str().unwrap().contains("PHILOSOPHER"));
+        assert!(!json["content"].as_str().unwrap().is_empty());
     }
 
     #[tokio::test]
