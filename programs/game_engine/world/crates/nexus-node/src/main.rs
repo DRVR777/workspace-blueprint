@@ -18,7 +18,7 @@ use nexus_core::types::{WorldStateSnapshot, PhysicsBody, ShapeParams, ChangeRequ
 use nexus_core::constants::{SECTOR_SIZE, QUIC_PORT};
 use nexus_spatial::SpatialIndex;
 use nexus_schema::SchemaRegistry;
-use nexus_semantic::{IdentityStore, HttpState, http_router};
+use nexus_semantic::{IdentityStore, HttpState, http_router, apply_layout};
 use nexus_semantic::identity::seed_identities;
 use nexus_semantic::llm::LocalEmbedClient;
 use nexus_semantic::worker::RoutingLoop;
@@ -167,7 +167,8 @@ async fn main() {
         }
     };
 
-    let seed_store = IdentityStore::build(seed_identities());
+    let seed_store = apply_layout(&IdentityStore::build(seed_identities()), 3);
+    tracing::info!("Semantic: layout applied — all seed identities have world_coord");
     let (routing_loop, rx) = RoutingLoop::new(seed_store, llm, Arc::clone(&event_log));
     let _routing_handle = Arc::clone(&routing_loop).spawn(rx);
     tracing::info!("Semantic routing loop started");
