@@ -123,6 +123,48 @@ impl IdentityStore {
         })
     }
 
+    /// Return up to `k` identity files nearest to `query`, closest first.
+    pub fn nearest_k(&self, query: &[f32], k: usize) -> Vec<&IdentityFile> {
+        if self.files.is_empty() || k == 0 {
+            return vec![];
+        }
+
+        if let Some(ref index) = self.hnsw {
+            let q = EmbedPoint(query.to_vec());
+            let mut search = Search::default();
+            let addrs: Vec<URI> = index
+                .search(&q, &mut search)
+                .take(k)
+                .map(|item| item.value.clone())
+                .collect();
+            let mut result = Vec::with_capacity(addrs.len());
+            for addr in &addrs {
+                if let Some(&i) = self.by_address.get(addr) {
+                    if let Some(f) = self.files.get(i) {
+                        result.push(f);
+                    }
+                }
+            }
+            if !result.is_empty() {
+                return result;
+            }
+        }
+
+        // Brute force fallback (< 2 files or HNSW returned nothing)
+        let mut indexed: Vec<(usize, f32)> = self.files.iter().enumerate()
+            .map(|(i, f)| (i, cosine_distance(query, &f.vector)))
+            .collect();
+        indexed.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+        indexed.iter().take(k)
+            .filter_map(|(i, _)| self.files.get(*i))
+            .collect()
+    }
+
+    /// Look up an identity file by its dworld:// address.
+    pub fn get_by_address(&self, address: &str) -> Option<&IdentityFile> {
+        self.by_address.get(address).and_then(|&i| self.files.get(i))
+    }
+
     /// Number of identity files in the store.
     pub fn len(&self) -> usize { self.files.len() }
     pub fn is_empty(&self) -> bool { self.files.is_empty() }

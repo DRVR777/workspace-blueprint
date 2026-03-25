@@ -99,8 +99,48 @@ impl RoutingLoop {
 
     // ── Snapshot access ───────────────────────────────────────────────────────
 
-    fn current_store(&self) -> Arc<IdentityStore> {
+    pub fn current_store(&self) -> Arc<IdentityStore> {
         self.store.read().unwrap().clone()
+    }
+
+    /// Look up an identity file by its dworld:// address.
+    pub fn get_identity(&self, address: &str) -> Option<IdentityFile> {
+        self.current_store().get_by_address(address).cloned()
+    }
+
+    /// Return up to `k` identity files nearest to the given embedding vector.
+    pub fn nearest_k(&self, vector: &[f32], k: usize) -> Vec<IdentityFile> {
+        self.current_store().nearest_k(vector, k)
+            .into_iter()
+            .cloned()
+            .collect()
+    }
+
+    /// Embed text using the LLM client. Exposed for the dworld:// field endpoint
+    /// when the caller wants the server to embed (managed fallback).
+    pub async fn llm_embed(&self, text: &str) -> Result<Vec<f32>, String> {
+        self.llm.embed(text).await.map_err(|e| e.to_string())
+    }
+
+    /// Embed `content` and insert it as a new identity file into the store.
+    /// Returns the new identity's address.
+    pub async fn index_output(
+        &self,
+        address: String,
+        content: String,
+        vector: Vec<f32>,
+    ) {
+        let new_identity = IdentityFile {
+            address: address.clone(),
+            content,
+            vector,
+            world_coord: None,
+        };
+        let mut identities: Vec<IdentityFile> =
+            self.current_store().iter().cloned().collect();
+        identities.push(new_identity);
+        self.swap_store(IdentityStore::build(identities));
+        tracing::debug!("field grew via index_output: {address}");
     }
 
     fn swap_store(&self, new_store: IdentityStore) {
