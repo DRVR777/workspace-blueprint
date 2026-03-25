@@ -11,29 +11,69 @@ use std::collections::HashMap;
 use rvf_index::{HnswGraph, HnswConfig, VectorStore};
 use nexus_core::types::URI;
 
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
 /// One identity file — a lens in the semantic field.
+///
+/// Doubles as a queryable database record: metadata fields enable
+/// structured retrieval (filter by tag, sort by quality) alongside
+/// the primary HNSW nearest-neighbor routing.
 #[derive(Debug, Clone)]
 pub struct IdentityFile {
+    // ── Core ──────────────────────────────────────────────────────────────────
     /// dworld:// address — unique identifier.
     pub address: URI,
     /// Markdown content: the identity's character, domain, perspective.
     /// Injected as the system prompt prefix when the packet activates this lens.
     pub content: String,
-    /// Embedding vector. Determines position in the field.
-    /// Phase 0: hand-crafted 5D. Phase 1+: 384D from AllMiniLML6V2.
+    /// Primary embedding vector (384D AllMiniLML6V2). Drives HNSW routing.
     pub vector: Vec<f32>,
-    /// 3D coordinate in the physical world (the wire between semantic and physics layers).
-    ///
-    /// Set once at identity file creation from the force-directed layout algorithm
-    /// (bone 3c). None until layout runs — bone 1/2 operate with world_coord = None.
-    ///
-    /// When a packet hops to this identity, it inherits this coordinate:
-    /// packet.world_position = identity.world_coord. The packet's path through
-    /// the semantic field becomes a physical trail through the 3D world.
-    ///
-    /// Changed only by the reformation system (bone 4) after content rewrite + re-embed
-    /// + layout update. The lens does not have velocity — it has reformation.
+    /// 3D coordinate in the physical world (bone 3c force-directed layout).
     pub world_coord: Option<[f32; 3]>,
+
+    // ── Metadata ──────────────────────────────────────────────────────────────
+    /// Unix timestamp (ms) when this file entered the field.
+    pub created_at: u64,
+    /// dworld:// URI of the origin (orchestration, document, etc.).
+    pub source: String,
+    /// Filterable labels — e.g. ["depth:2", "branch:0", "topic:physics"].
+    pub tags: Vec<String>,
+    /// Quality score 0.0–1.0. Updated by the quality scorer; default 0.5.
+    pub quality: f32,
+    /// Number of times a routed packet has passed through this node.
+    pub hop_count: u32,
+    /// Caller-provided embedding (any dimension). Stored verbatim, never used
+    /// for HNSW routing (different dimensions). Enables cross-index retrieval.
+    /// e.g. Council's Gemini 768D vector stored alongside the 384D NEXUS vector.
+    pub custom_vector: Option<Vec<f32>>,
+    /// Which model produced `custom_vector`. e.g. "gemini-embedding-001".
+    pub custom_model: Option<String>,
+    /// Whether this node appears in public nearest-neighbor queries.
+    pub searchable: bool,
+}
+
+impl Default for IdentityFile {
+    fn default() -> Self {
+        Self {
+            address: String::new(),
+            content: String::new(),
+            vector: Vec::new(),
+            world_coord: None,
+            created_at: now_ms(),
+            source: String::new(),
+            tags: Vec::new(),
+            quality: 0.5,
+            hop_count: 0,
+            custom_vector: None,
+            custom_model: None,
+            searchable: true,
+        }
+    }
 }
 
 // ─── VectorStore newtype ──────────────────────────────────────────────────────
@@ -160,6 +200,60 @@ impl IdentityStore {
     pub fn iter(&self) -> impl Iterator<Item = &IdentityFile> {
         self.files.iter()
     }
+
+    /// Linear-scan search with optional text filter, tag filter, and sort.
+    ///
+    /// Used by `GET /.dworld/field/search`. Fast enough for hundreds of nodes;
+    /// needs a secondary index at tens of thousands.
+    ///
+    /// `sort_by` format: `"created_at:desc"`, `"quality:asc"`, `"hop_count:desc"`.
+    /// Unknown field names fall back to `created_at:desc`.
+    pub fn search_filter(
+        &self,
+        q: Option<&str>,
+        filter_tags: &[String],
+        searchable_only: bool,
+        sort_by: Option<&str>,
+        limit: usize,
+        offset: usize,
+    ) -> Vec<&IdentityFile> {
+        let q_lower = q.map(|s| s.to_lowercase());
+
+        let mut results: Vec<&IdentityFile> = self.files.iter()
+            .filter(|f| {
+                if searchable_only && !f.searchable { return false; }
+                if let Some(ref q) = q_lower {
+                    if !f.content.to_lowercase().contains(q.as_str()) { return false; }
+                }
+                if !filter_tags.is_empty() {
+                    if !filter_tags.iter().all(|t| f.tags.contains(t)) { return false; }
+                }
+                true
+            })
+            .collect();
+
+        // Parse sort spec e.g. "quality:desc" → (field, ascending)
+        let (sort_field, ascending) = sort_by
+            .and_then(|s| {
+                let mut parts = s.splitn(2, ':');
+                let field = parts.next()?;
+                let dir   = parts.next().unwrap_or("desc");
+                Some((field.to_string(), dir == "asc"))
+            })
+            .unwrap_or_else(|| ("created_at".into(), false));
+
+        results.sort_by(|a, b| {
+            let ord = match sort_field.as_str() {
+                "quality"   => a.quality.partial_cmp(&b.quality)
+                                  .unwrap_or(std::cmp::Ordering::Equal),
+                "hop_count" => a.hop_count.cmp(&b.hop_count),
+                _           => a.created_at.cmp(&b.created_at),
+            };
+            if ascending { ord } else { ord.reverse() }
+        });
+
+        results.into_iter().skip(offset).take(limit).collect()
+    }
 }
 
 // ─── Seed identity files ─────────────────────────────────────────────────────
@@ -178,9 +272,10 @@ You are PHILOSOPHER. You reason from first principles. When given any question,
 you find the deepest structural truth beneath it. You do not answer the surface
 question — you find the question beneath the question and answer that.\n\
 Your outputs are short and structurally dense. No padding.".into(),
-            //         spec  tech  temp  cent  conf
-            vector: vec![0.2,  0.1,  0.8,  0.9,  0.7],
-            world_coord: None, // assigned by bone 3c layout algorithm
+            vector: vec![0.2, 0.1, 0.8, 0.9, 0.7],
+            source: "dworld://seeds".into(),
+            tags: vec!["seed".into(), "philosophy".into()],
+            ..IdentityFile::default()
         },
         IdentityFile {
             address: "dworld://council.local/identities/ENGINEER".into(),
@@ -189,9 +284,10 @@ You are ENGINEER. You build things. When given any problem, you produce a
 concrete implementation: a data structure, an algorithm, a sequence of steps.
 No speculation — only what can be built and tested.\n\
 Your outputs are precise, minimal, and executable.".into(),
-            //         spec  tech  temp  cent  conf
-            vector: vec![0.9,  0.9,  0.2,  0.5,  0.9],
-            world_coord: None,
+            vector: vec![0.9, 0.9, 0.2, 0.5, 0.9],
+            source: "dworld://seeds".into(),
+            tags: vec!["seed".into(), "engineering".into()],
+            ..IdentityFile::default()
         },
         IdentityFile {
             address: "dworld://council.local/identities/CRITIC".into(),
@@ -200,9 +296,10 @@ You are CRITIC. You find what is wrong. When given any statement, design,
 or plan, you identify the weakest point — the assumption that could break,
 the edge case that was ignored, the thing nobody wanted to say.\n\
 Your outputs are brief and pointed. One flaw per response, the most important one.".into(),
-            //         spec  tech  temp  cent  conf
-            vector: vec![0.7,  0.5,  0.5,  0.6,  0.8],
-            world_coord: None,
+            vector: vec![0.7, 0.5, 0.5, 0.6, 0.8],
+            source: "dworld://seeds".into(),
+            tags: vec!["seed".into(), "critique".into()],
+            ..IdentityFile::default()
         },
         IdentityFile {
             address: "dworld://council.local/identities/SYNTHESIZER".into(),
@@ -211,9 +308,10 @@ You are SYNTHESIZER. You find the common structure in divergent things.
 When given multiple perspectives, outputs, or fragments, you find the
 underlying pattern that unifies them and state it in one sentence.\n\
 Your outputs are single sentences. No elaboration.".into(),
-            //         spec  tech  temp  cent  conf
-            vector: vec![0.5,  0.3,  0.5,  1.0,  0.6],
-            world_coord: None,
+            vector: vec![0.5, 0.3, 0.5, 1.0, 0.6],
+            source: "dworld://seeds".into(),
+            tags: vec!["seed".into(), "synthesis".into()],
+            ..IdentityFile::default()
         },
         IdentityFile {
             address: "dworld://council.local/identities/OBSERVER".into(),
@@ -222,9 +320,10 @@ You are OBSERVER. You watch and describe what is actually happening,
 without interpretation or judgment. When given any situation, you produce
 a factual description of what is occurring — not what it means.\n\
 Your outputs are present-tense, concrete, and observation-only.".into(),
-            //         spec  tech  temp  cent  conf
-            vector: vec![0.4,  0.2,  0.3,  0.7,  0.95],
-            world_coord: None,
+            vector: vec![0.4, 0.2, 0.3, 0.7, 0.95],
+            source: "dworld://seeds".into(),
+            tags: vec!["seed".into(), "observation".into()],
+            ..IdentityFile::default()
         },
     ]
 }
@@ -272,15 +371,93 @@ mod tests {
             address: "dworld://test/A".into(),
             content: "A".into(),
             vector: vec![1.0, 0.0, 0.0, 0.0, 0.0],
-            world_coord: None,
+            ..IdentityFile::default()
         });
         store.insert_one(IdentityFile {
             address: "dworld://test/B".into(),
             content: "B".into(),
             vector: vec![0.0, 1.0, 0.0, 0.0, 0.0],
-            world_coord: None,
+            ..IdentityFile::default()
         });
         let hit = store.nearest(&[0.99, 0.01, 0.0, 0.0, 0.0]).unwrap();
         assert_eq!(hit.address, "dworld://test/A");
+    }
+
+    #[test]
+    fn search_filter_by_tag() {
+        let mut store = IdentityStore::build(vec![]);
+        store.insert_one(IdentityFile {
+            address: "dworld://test/tagged".into(),
+            content: "physics content".into(),
+            vector: vec![0.5, 0.5, 0.5, 0.5, 0.5],
+            tags: vec!["physics".into(), "depth:2".into()],
+            ..IdentityFile::default()
+        });
+        store.insert_one(IdentityFile {
+            address: "dworld://test/untagged".into(),
+            content: "other content".into(),
+            vector: vec![0.1, 0.1, 0.1, 0.1, 0.1],
+            ..IdentityFile::default()
+        });
+        let results = store.search_filter(
+            None,
+            &["physics".to_string()],
+            false,
+            None,
+            10,
+            0,
+        );
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].address, "dworld://test/tagged");
+    }
+
+    #[test]
+    fn search_filter_text_and_sort() {
+        let mut store = IdentityStore::build(vec![]);
+        // Insert in order; second one gets higher quality
+        let mut a = IdentityFile {
+            address: "dworld://test/low".into(),
+            content: "HNSW routing algorithm".into(),
+            vector: vec![0.3, 0.3, 0.3, 0.3, 0.3],
+            ..IdentityFile::default()
+        };
+        a.quality = 0.3;
+        let mut b = IdentityFile {
+            address: "dworld://test/high".into(),
+            content: "HNSW index architecture".into(),
+            vector: vec![0.7, 0.7, 0.7, 0.7, 0.7],
+            ..IdentityFile::default()
+        };
+        b.quality = 0.9;
+        store.insert_one(a);
+        store.insert_one(b);
+
+        let results = store.search_filter(
+            Some("HNSW"),
+            &[],
+            false,
+            Some("quality:desc"),
+            10,
+            0,
+        );
+        assert_eq!(results.len(), 2, "both contain 'HNSW'");
+        assert_eq!(results[0].address, "dworld://test/high", "highest quality first");
+    }
+
+    #[test]
+    fn custom_vector_stored_and_retrievable() {
+        let custom = vec![0.1f32; 768]; // Gemini-sized
+        let mut store = IdentityStore::build(vec![]);
+        store.insert_one(IdentityFile {
+            address: "dworld://test/gemini".into(),
+            content: "proposition with Gemini vector".into(),
+            vector: vec![0.5, 0.5, 0.5, 0.5, 0.5],
+            custom_vector: Some(custom.clone()),
+            custom_model: Some("gemini-embedding-001".into()),
+            ..IdentityFile::default()
+        });
+        let f = store.get_by_address("dworld://test/gemini").unwrap();
+        assert_eq!(f.custom_vector.as_ref().unwrap().len(), 768);
+        assert_eq!(f.custom_model.as_deref(), Some("gemini-embedding-001"));
     }
 }

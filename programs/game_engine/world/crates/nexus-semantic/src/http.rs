@@ -37,6 +37,7 @@ use serde::{Deserialize, Serialize};
 
 use nexus_core::types::{PacketData, SemanticPacket};
 use nexus_events::EventLog;
+use crate::identity::IdentityFile;
 
 use crate::worker::RoutingLoop;
 
@@ -384,16 +385,18 @@ async fn get_nearest(
 #[derive(Deserialize)]
 struct PropositionEntry {
     text: String,
+    /// dworld:// URI of origin. Falls back to `source_address` if absent.
+    source: Option<String>,
     #[serde(default)]
     tags: Vec<String>,
-    /// Caller's pre-computed vector (ignored for now — NEXUS re-embeds at 384D).
-    /// Reserved for future: if provided and dim matches, skip re-embedding.
-    #[allow(dead_code)]
+    /// Caller's pre-computed embedding — stored verbatim on the IdentityFile.
+    /// NEXUS still re-embeds `text` at 384D for HNSW routing.
+    /// Enables cross-index retrieval: e.g. store Council's Gemini 768D vector here.
     custom_vector: Option<Vec<f32>>,
-    /// Whether to include in nearest-neighbor search (default true).
-    /// Reserved for future filtered search. Currently all entries are searchable.
+    /// Which model produced `custom_vector`. e.g. "gemini-embedding-001".
+    custom_model: Option<String>,
+    /// Whether to include in public nearest-neighbor queries (default true).
     #[serde(default = "default_searchable")]
-    #[allow(dead_code)]
     searchable: bool,
 }
 
@@ -419,6 +422,30 @@ impl PropositionItem {
         match self {
             Self::Text(_) => &[],
             Self::Entry(e) => &e.tags,
+        }
+    }
+    fn source(&self) -> Option<&str> {
+        match self {
+            Self::Text(_) => None,
+            Self::Entry(e) => e.source.as_deref(),
+        }
+    }
+    fn custom_vector(&self) -> Option<&Vec<f32>> {
+        match self {
+            Self::Text(_) => None,
+            Self::Entry(e) => e.custom_vector.as_ref(),
+        }
+    }
+    fn custom_model(&self) -> Option<&str> {
+        match self {
+            Self::Text(_) => None,
+            Self::Entry(e) => e.custom_model.as_deref(),
+        }
+    }
+    fn searchable(&self) -> bool {
+        match self {
+            Self::Text(_) => true,
+            Self::Entry(e) => e.searchable,
         }
     }
 }
@@ -472,14 +499,9 @@ async fn post_ingest_propositions(
         let tags = item.tags();
         tags_received += tags.len();
 
-        // Address encodes provenance: base/prop/{i} with tag summary in tracing.
-        // Tag-filtered search is future work — tags logged now, indexed later.
         let address = format!("{}/prop/{}", req.source_address, i);
 
-        if !tags.is_empty() {
-            tracing::debug!("ingest prop {i} tags: {tags:?}");
-        }
-
+        // Embed text only — custom_vector stored separately, never pollutes routing.
         let vector = match state.routing_loop.llm_embed(text).await {
             Ok(v) => v,
             Err(e) => {
@@ -487,9 +509,22 @@ async fn post_ingest_propositions(
                 return StatusCode::INTERNAL_SERVER_ERROR.into_response();
             }
         };
-        state.routing_loop
-            .index_output(address.clone(), text.to_string(), vector)
-            .await;
+
+        let file = IdentityFile {
+            address: address.clone(),
+            content: text.to_string(),
+            vector,
+            source: item.source()
+                .unwrap_or(&req.source_address)
+                .to_string(),
+            tags: tags.to_vec(),
+            custom_vector: item.custom_vector().cloned(),
+            custom_model: item.custom_model().map(str::to_string),
+            searchable: item.searchable(),
+            ..IdentityFile::default()
+        };
+
+        state.routing_loop.index_file(file).await;
         addresses.push(address);
     }
 
@@ -499,6 +534,147 @@ async fn post_ingest_propositions(
         tags_received,
     })
     .into_response()
+}
+
+/// GET /.dworld/field/search
+///
+/// Full-metadata search over the identity store.
+/// All parameters are optional — omitting all returns up to `limit` records.
+///
+/// Query params:
+///   q      — text substring filter (case-insensitive)
+///   filter — comma-separated tag values to match (AND — node must have all)
+///   sort   — "quality:desc" | "quality:asc" | "created_at:desc" | "created_at:asc"
+///             | "hop_count:desc" | "hop_count:asc"  (default: "created_at:desc")
+///   limit  — max results (default 20, max 200)
+///   offset — pagination offset (default 0)
+#[derive(Deserialize)]
+struct SearchQuery {
+    q: Option<String>,
+    filter: Option<String>,
+    sort: Option<String>,
+    #[serde(default = "default_search_limit")]
+    limit: usize,
+    #[serde(default)]
+    offset: usize,
+}
+
+fn default_search_limit() -> usize { 20 }
+
+#[derive(Serialize)]
+struct SearchEntry {
+    address: String,
+    content: String,
+    source: String,
+    tags: Vec<String>,
+    quality: f32,
+    hop_count: u32,
+    created_at: u64,
+    searchable: bool,
+    world_coord: Option<[f32; 3]>,
+    custom_model: Option<String>,
+    /// true if a custom_vector is stored (vector itself omitted from listing)
+    has_custom_vector: bool,
+}
+
+#[derive(Serialize)]
+struct SearchResponse {
+    total: usize,
+    offset: usize,
+    results: Vec<SearchEntry>,
+}
+
+async fn get_field_search(
+    State(state): State<Arc<HttpState>>,
+    axum::extract::Query(params): axum::extract::Query<SearchQuery>,
+) -> impl IntoResponse {
+    let limit = params.limit.min(200);
+    let filter_tags: Vec<String> = params.filter
+        .as_deref()
+        .unwrap_or("")
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect();
+
+    let store = state.routing_loop.current_store();
+    let hits = store.search_filter(
+        params.q.as_deref(),
+        &filter_tags,
+        false, // return all, not just searchable:true
+        params.sort.as_deref(),
+        limit,
+        params.offset,
+    );
+
+    let total = hits.len();
+    let results = hits.into_iter().map(|id| SearchEntry {
+        address: id.address.clone(),
+        content: id.content.clone(),
+        source: id.source.clone(),
+        tags: id.tags.clone(),
+        quality: id.quality,
+        hop_count: id.hop_count,
+        created_at: id.created_at,
+        searchable: id.searchable,
+        world_coord: id.world_coord,
+        custom_model: id.custom_model.clone(),
+        has_custom_vector: id.custom_vector.is_some(),
+    }).collect();
+
+    Json(SearchResponse { total, offset: params.offset, results }).into_response()
+}
+
+/// GET /.dworld/field/node/{*address}
+///
+/// Returns the full IdentityFile metadata for one node by its dworld:// address.
+/// Includes both the routing vector (384D) and the custom_vector if stored.
+///
+/// The {*address} wildcard captures slashes so addresses like
+///   dworld://orchestration/test-001/prop/0
+/// map to:
+///   GET /.dworld/field/node/orchestration/test-001/prop/0
+#[derive(Serialize)]
+struct NodeResponse {
+    address: String,
+    content: String,
+    source: String,
+    tags: Vec<String>,
+    quality: f32,
+    hop_count: u32,
+    created_at: u64,
+    searchable: bool,
+    world_coord: Option<[f32; 3]>,
+    custom_model: Option<String>,
+    /// The 384D HNSW routing vector (or whatever dim the local embedder uses).
+    vector: Vec<f32>,
+    /// Caller's original embedding, if provided at ingest. Stored verbatim.
+    custom_vector: Option<Vec<f32>>,
+}
+
+async fn get_field_node(
+    State(state): State<Arc<HttpState>>,
+    Path(path): Path<String>,
+) -> impl IntoResponse {
+    let address = format!("dworld://{path}");
+    match state.routing_loop.get_identity(&address) {
+        Some(id) => Json(NodeResponse {
+            address: id.address,
+            content: id.content,
+            source: id.source,
+            tags: id.tags,
+            quality: id.quality,
+            hop_count: id.hop_count,
+            created_at: id.created_at,
+            searchable: id.searchable,
+            world_coord: id.world_coord,
+            custom_model: id.custom_model,
+            vector: id.vector,
+            custom_vector: id.custom_vector,
+        }).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
 }
 
 // ─── Router ───────────────────────────────────────────────────────────────────
@@ -513,12 +689,16 @@ pub fn router(state: Arc<HttpState>) -> Router {
         .route("/chain/{chain_id}", get(get_chain))
         .route("/health", get(health))
         // dworld:// protocol (caller owns inference, server owns index)
-        .route("/.dworld/{*path}", get(get_manifest))
+        // Note: specific routes before the catch-all {*path} so axum matches correctly
         .route("/.dworld/identities/{name}", get(get_identity))
         .route("/.dworld/field", post(post_field))
         .route("/.dworld/field/nearest", get(get_nearest))
+        .route("/.dworld/field/search", get(get_field_search))
+        .route("/.dworld/field/node/{*address}", get(get_field_node))
         // Council → NEXUS bridge
         .route("/.dworld/ingest/propositions", post(post_ingest_propositions))
+        // Catch-all manifest resolver — must come last
+        .route("/.dworld/{*path}", get(get_manifest))
         .with_state(state)
 }
 
@@ -839,5 +1019,184 @@ mod tests {
         // We need to access it from state - but state was moved into router...
         // This verifies via the response only; store growth is covered by worker tests.
         let _ = initial_size; // accepted: store growth tested in worker::tests
+    }
+
+    // ── field/search and field/node tests ─────────────────────────────────────
+
+    /// Insert a node with tags and custom_vector, retrieve by address,
+    /// verify both vectors are stored.
+    #[tokio::test]
+    async fn field_node_returns_full_metadata_including_vectors() {
+        let state = make_state();
+        let app = router(Arc::clone(&state));
+
+        // Ingest one rich proposition with custom_vector
+        let body = serde_json::json!({
+            "propositions": [{
+                "text": "quantum entanglement enables non-local correlations",
+                "tags": ["topic:physics", "depth:3"],
+                "custom_vector": [0.9_f32, 0.8, 0.7, 0.6, 0.5],
+                "custom_model": "gemini-embedding-001",
+                "searchable": true
+            }],
+            "source_address": "dworld://test/meta-round-trip"
+        }).to_string();
+
+        let req = Request::builder()
+            .method(http::Method::POST)
+            .uri("/.dworld/ingest/propositions")
+            .header("content-type", "application/json")
+            .body(Body::from(body))
+            .unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // Retrieve by address
+        let req2 = Request::builder()
+            .uri("/.dworld/field/node/test/meta-round-trip/prop/0")
+            .body(Body::empty())
+            .unwrap();
+        let resp2 = app.oneshot(req2).await.unwrap();
+        assert_eq!(resp2.status(), StatusCode::OK);
+
+        let bytes = axum::body::to_bytes(resp2.into_body(), 8192).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+
+        // Tags round-trip
+        let tags: Vec<&str> = json["tags"].as_array().unwrap()
+            .iter().filter_map(|t| t.as_str()).collect();
+        assert!(tags.contains(&"topic:physics"), "topic:physics tag missing");
+        assert!(tags.contains(&"depth:3"), "depth:3 tag missing");
+
+        // custom_vector round-trip
+        let cv = json["custom_vector"].as_array().unwrap();
+        assert_eq!(cv.len(), 5, "custom_vector should be 5D");
+        let first = cv[0].as_f64().unwrap();
+        assert!((first - 0.9).abs() < 0.001, "custom_vector[0] should be ~0.9");
+
+        // custom_model round-trip
+        assert_eq!(json["custom_model"].as_str().unwrap(), "gemini-embedding-001");
+
+        // routing vector present (MockLlmClient produces 5D)
+        let v = json["vector"].as_array().unwrap();
+        assert!(!v.is_empty(), "routing vector must be present");
+    }
+
+    /// Search by tag filter, verify only matching nodes returned.
+    #[tokio::test]
+    async fn field_search_tag_filter_returns_only_matching() {
+        let state = make_state();
+        let app = router(Arc::clone(&state));
+
+        // Ingest two propositions with different tags
+        let body = serde_json::json!({
+            "propositions": [
+                { "text": "dark matter fills galactic halos", "tags": ["topic:astrophysics"] },
+                { "text": "neural oscillations underlie consciousness", "tags": ["topic:neuroscience"] }
+            ],
+            "source_address": "dworld://test/tag-search"
+        }).to_string();
+
+        let req = Request::builder()
+            .method(http::Method::POST)
+            .uri("/.dworld/ingest/propositions")
+            .header("content-type", "application/json")
+            .body(Body::from(body))
+            .unwrap();
+        app.clone().oneshot(req).await.unwrap();
+
+        // Search with tag filter
+        let req2 = Request::builder()
+            .uri("/.dworld/field/search?filter=topic:astrophysics&limit=50")
+            .body(Body::empty())
+            .unwrap();
+        let resp2 = app.oneshot(req2).await.unwrap();
+        assert_eq!(resp2.status(), StatusCode::OK);
+
+        let bytes = axum::body::to_bytes(resp2.into_body(), 8192).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        let results = json["results"].as_array().unwrap();
+
+        // Only astrophysics propositions should be present
+        for r in results {
+            let tags: Vec<&str> = r["tags"].as_array().unwrap()
+                .iter().filter_map(|t| t.as_str()).collect();
+            if r["address"].as_str().unwrap().contains("tag-search") {
+                assert!(
+                    tags.contains(&"topic:astrophysics"),
+                    "non-astrophysics result leaked through: {:?}", r["address"]
+                );
+            }
+        }
+        // At least one astrophysics result present
+        let has_astro = results.iter().any(|r| {
+            r["address"].as_str().unwrap_or("").contains("tag-search/prop/0")
+        });
+        assert!(has_astro, "astrophysics proposition not found in filtered results");
+    }
+
+    /// Sort by created_at desc, verify newest first.
+    #[tokio::test]
+    async fn field_search_sort_created_at_desc_newest_first() {
+        let state = make_state();
+        let app = router(Arc::clone(&state));
+
+        // Ingest propositions sequentially — each gets a fresh created_at
+        for i in 0..3 {
+            let body = serde_json::json!({
+                "propositions": [{
+                    "text": format!("ordered proposition number {i}"),
+                    "tags": [format!("seq:{i}")]
+                }],
+                "source_address": format!("dworld://test/sort-test/{i}")
+            }).to_string();
+
+            let req = Request::builder()
+                .method(http::Method::POST)
+                .uri("/.dworld/ingest/propositions")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap();
+            app.clone().oneshot(req).await.unwrap();
+
+            // Small yield to allow timestamps to differ
+            tokio::task::yield_now().await;
+        }
+
+        let req = Request::builder()
+            .uri("/.dworld/field/search?q=ordered+proposition&sort=created_at:desc&limit=10")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let bytes = axum::body::to_bytes(resp.into_body(), 8192).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        let results = json["results"].as_array().unwrap();
+
+        // created_at values should be non-increasing (newest first)
+        let timestamps: Vec<u64> = results.iter()
+            .filter_map(|r| r["created_at"].as_u64())
+            .collect();
+        for w in timestamps.windows(2) {
+            assert!(
+                w[0] >= w[1],
+                "sort created_at:desc violation: {} < {}", w[0], w[1]
+            );
+        }
+    }
+
+    /// field/node returns 404 for unknown address.
+    #[tokio::test]
+    async fn field_node_returns_404_for_unknown() {
+        let state = make_state();
+        let app = router(state);
+
+        let req = Request::builder()
+            .uri("/.dworld/field/node/does/not/exist")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     }
 }

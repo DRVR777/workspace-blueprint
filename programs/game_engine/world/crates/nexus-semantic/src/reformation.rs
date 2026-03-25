@@ -160,6 +160,7 @@ Output only the rewritten identity file content — no preamble, no commentary."
                         content:     new_content.clone(),
                         vector:      new_vector.clone(),
                         world_coord: f.world_coord, // overwritten by apply_layout
+                        ..f.clone()
                     }
                 } else {
                     f.clone()

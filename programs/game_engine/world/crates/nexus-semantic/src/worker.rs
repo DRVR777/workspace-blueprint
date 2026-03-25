@@ -138,12 +138,18 @@ impl RoutingLoop {
             address: address.clone(),
             content,
             vector,
-            world_coord: None,
+            ..IdentityFile::default()
         };
-        // Write lock held only for the insert_one call — no rebuild unless threshold hit.
+        self.index_file(new_identity).await;
+    }
+
+    /// Insert a fully-constructed IdentityFile (with all metadata) into the store.
+    /// Called by the ingest endpoint to preserve tags, custom_vector, quality, etc.
+    pub async fn index_file(&self, file: IdentityFile) {
+        let addr = file.address.clone();
         let mut write_guard = self.store.write().unwrap();
-        Arc::make_mut(&mut *write_guard).insert_one(new_identity);
-        tracing::debug!("field grew via index_output: {address}");
+        Arc::make_mut(&mut *write_guard).insert_one(file);
+        tracing::debug!("field grew via index_file: {addr}");
     }
 
     fn swap_store(&self, new_store: IdentityStore) {
@@ -210,7 +216,8 @@ impl RoutingLoop {
                 address: memory_addr,
                 content: output.clone(),
                 vector,
-                world_coord: None, // layout assigns in bone 3c
+                source: format!("dworld://memory/{}", packet.chain_id),
+                ..IdentityFile::default()
             };
 
             // Incremental insert — O(1) amortized (no full rebuild unless threshold hit).

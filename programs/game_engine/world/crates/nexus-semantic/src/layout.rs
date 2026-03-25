@@ -34,6 +34,7 @@ pub fn apply_layout(store: &IdentityStore, k: usize) -> IdentityStore {
             content:    f.content.clone(),
             vector:     f.vector.clone(),
             world_coord: Some(positions[i]),
+            ..f.clone()
         })
         .collect();
     IdentityStore::build(updated)

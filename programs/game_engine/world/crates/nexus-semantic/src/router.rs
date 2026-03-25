@@ -261,6 +261,7 @@ mod tests {
                 content: content.to_string(),
                 vector,
                 world_coord: None,
+                ..IdentityFile::default()
             });
         }
 
@@ -293,6 +294,7 @@ mod tests {
             content: output1.clone(),
             vector: memory_vector,
             world_coord: None, // layout assigns this in bone 3c
+            ..IdentityFile::default()
         });
 
         // ── Route Packet 2 carrying output1's text ────────────────────────────
