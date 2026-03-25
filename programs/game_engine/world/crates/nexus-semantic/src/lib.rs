@@ -24,8 +24,10 @@ pub mod identity;
 pub mod llm;
 pub mod router;
 pub mod queue;
+pub mod worker;
 
 pub use identity::{IdentityFile, IdentityStore};
 pub use llm::{LlmClient, MockLlmClient};
 pub use router::{Router, RouteResult};
 pub use queue::PacketQueue;
+pub use worker::{RoutingLoop, extract_continuation};
