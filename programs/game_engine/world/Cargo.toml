@@ -27,6 +27,7 @@ nexus-semantic   = { path = "crates/nexus-semantic" }
 nexus-events     = { path = "crates/nexus-events" }
 rvf-runtime      = { path = "crates/rvf-runtime" }
 nexus-backends   = { path = "crates/nexus-backends" }
+rvf-index        = { path = "/root/RuVector/crates/rvf/rvf-index" }
 
 # Hashing
 sha2       = "0.10"

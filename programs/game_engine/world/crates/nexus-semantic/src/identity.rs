@@ -8,7 +8,7 @@
 //! The HNSW index works at any vector length — only the embedding call changes.
 
 use std::collections::HashMap;
-use instant_distance::{Builder, HnswMap, Search, Point};
+use rvf_index::{HnswGraph, HnswConfig, VectorStore};
 use nexus_core::types::URI;
 
 /// One identity file — a lens in the semantic field.
@@ -36,54 +36,56 @@ pub struct IdentityFile {
     pub world_coord: Option<[f32; 3]>,
 }
 
-// ─── HNSW integration ────────────────────────────────────────────────────────
+// ─── VectorStore newtype ──────────────────────────────────────────────────────
 
-/// Wrapper so `Vec<f32>` satisfies the `instant_distance::Point` trait.
-#[derive(Clone, PartialEq)]
-pub(crate) struct EmbedPoint(pub Vec<f32>);
+/// Newtype so `&[IdentityFile]` satisfies rvf-index's `VectorStore` trait.
+///
+/// `id` is the slot index in the `files` vec cast to `u64`.
+struct FilesStore<'a>(&'a [IdentityFile]);
 
-impl Point for EmbedPoint {
-    fn distance(&self, other: &Self) -> f32 {
-        // Cosine distance: 1 - (a·b / |a||b|)
-        // HNSW finds the minimum — cosine *distance* means higher similarity = smaller value.
-        let dot: f32   = self.0.iter().zip(other.0.iter()).map(|(a, b)| a * b).sum();
-        let mag_a: f32 = self.0.iter().map(|x| x * x).sum::<f32>().sqrt();
-        let mag_b: f32 = other.0.iter().map(|x| x * x).sum::<f32>().sqrt();
-        if mag_a == 0.0 || mag_b == 0.0 {
-            return 1.0; // orthogonal by convention
-        }
-        1.0 - (dot / (mag_a * mag_b))
+impl<'a> VectorStore for FilesStore<'a> {
+    fn get_vector(&self, id: u64) -> Option<&[f32]> {
+        self.0.get(id as usize).map(|f| f.vector.as_slice())
     }
+    fn dimension(&self) -> usize {
+        self.0.first().map_or(0, |f| f.vector.len())
+    }
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/// Inline LCG — produces a deterministic f64 in (0.001, 0.999).
+/// Avoids a `rand` dependency while matching rvf-index's own test patterns.
+fn lcg_rng(seed: u64) -> f64 {
+    let v = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+    ((v >> 33) as f64 / (1u64 << 31) as f64).clamp(0.001, 0.999)
+}
+
+fn cosine_distance(a: &[f32], b: &[f32]) -> f32 {
+    let dot: f32   = a.iter().zip(b).map(|(x, y)| x * y).sum();
+    let mag_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
+    let mag_b: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
+    if mag_a == 0.0 || mag_b == 0.0 { 1.0 } else { 1.0 - (dot / (mag_a * mag_b)) }
 }
 
 // ─── IdentityStore ───────────────────────────────────────────────────────────
 
 /// The semantic field: a collection of identity files indexed for fast
-/// nearest-neighbour retrieval.
+/// nearest-neighbour retrieval via rvf-index's incremental HNSW.
 ///
-/// Supports O(1) amortized single-file insertion via a lazy-rebuild strategy:
-/// - `files[0..indexed_count]` are covered by the HNSW graph.
-/// - `files[indexed_count..]` are new and searched by brute force.
-/// - When unindexed files exceed `rebuild_threshold`, the HNSW is rebuilt
-///   to cover all files. Rebuild cost is O(n log n) but amortized over
-///   `rebuild_threshold` insertions, giving O(log n / threshold) per insert.
+/// Every `insert_one` call feeds the new vector directly into the live graph —
+/// no watermark batching, no brute-force tail, no optional index.
 pub struct IdentityStore {
     by_address: HashMap<URI, usize>,
     files: Vec<IdentityFile>,
-    hnsw: Option<HnswMap<EmbedPoint, URI>>,
-    /// How many files are covered by the current HNSW graph.
-    indexed_count: usize,
-    /// Rebuild HNSW when the number of unindexed files reaches this value.
-    rebuild_threshold: usize,
+    hnsw: HnswGraph,
 }
 
 impl Clone for IdentityStore {
     /// Clone by rebuilding the HNSW index from the current files.
     ///
-    /// This is O(n log n) but only invoked when `Arc::make_mut` encounters a
+    /// O(n log n) but only invoked when `Arc::make_mut` encounters a
     /// non-unique reference (workers hold snapshots while an insert fires).
-    /// In the common case (no concurrent routing), `Arc::make_mut` mutates
-    /// in place and this is never called.
     fn clone(&self) -> Self {
         Self::build(self.files.clone())
     }
@@ -97,41 +99,28 @@ impl IdentityStore {
         for (i, f) in files.iter().enumerate() {
             by_address.insert(f.address.clone(), i);
         }
-        let n = files.len();
-        let hnsw = Self::build_index(&files);
-        Self {
-            by_address,
-            files,
-            hnsw,
-            indexed_count: n,
-            rebuild_threshold: 16,
+        let mut hnsw = HnswGraph::new(&HnswConfig::default());
+        {
+            let store = FilesStore(&files);
+            for i in 0..files.len() {
+                hnsw.insert(i as u64, lcg_rng(i as u64), &store, &cosine_distance);
+            }
         }
+        Self { by_address, files, hnsw }
     }
 
     /// Insert one identity file into the store.
     ///
-    /// The file is immediately queryable (via brute force on the unindexed tail).
-    /// When the unindexed tail reaches `rebuild_threshold`, the HNSW index is
-    /// rebuilt to cover all files — O(n log n) amortized over many insertions.
+    /// The file is immediately inserted into the live HNSW graph — O(log n).
     pub fn insert_one(&mut self, file: IdentityFile) {
         let idx = self.files.len();
         self.by_address.insert(file.address.clone(), idx);
         self.files.push(file);
-
-        let unindexed = self.files.len() - self.indexed_count;
-        if unindexed >= self.rebuild_threshold && self.files.len() >= 2 {
-            self.hnsw = Self::build_index(&self.files);
-            self.indexed_count = self.files.len();
-        }
-    }
-
-    fn build_index(files: &[IdentityFile]) -> Option<HnswMap<EmbedPoint, URI>> {
-        if files.len() < 2 {
-            return None;
-        }
-        let points: Vec<EmbedPoint> = files.iter().map(|f| EmbedPoint(f.vector.clone())).collect();
-        let values: Vec<URI>        = files.iter().map(|f| f.address.clone()).collect();
-        Some(Builder::default().build(points, values))
+        let rng = lcg_rng(idx as u64);
+        // Borrow split: &mut self.hnsw and &self.files are disjoint fields.
+        let hnsw  = &mut self.hnsw;
+        let store = FilesStore(&self.files);
+        hnsw.insert(idx as u64, rng, &store, &cosine_distance);
     }
 
     /// Return the identity file most semantically proximate to `query`.
@@ -140,39 +129,15 @@ impl IdentityStore {
     }
 
     /// Return up to `k` identity files nearest to `query`, closest first.
-    ///
-    /// Combines HNSW results (for indexed files) with brute-force results
-    /// (for any unindexed files added since the last rebuild).
     pub fn nearest_k(&self, query: &[f32], k: usize) -> Vec<&IdentityFile> {
         if self.files.is_empty() || k == 0 {
             return vec![];
         }
-
-        let mut candidates: Vec<(usize, f32)> = Vec::new();
-
-        // HNSW covers files[0..indexed_count]
-        if let Some(ref index) = self.hnsw {
-            let q = EmbedPoint(query.to_vec());
-            let mut search = Search::default();
-            for item in index.search(&q, &mut search).take(k) {
-                if let Some(&i) = self.by_address.get(item.value) {
-                    candidates.push((i, item.distance));
-                }
-            }
-        }
-
-        // Brute force for files[indexed_count..] (unindexed tail)
-        // Also covers the case where HNSW doesn't exist yet (indexed_count == 0)
-        let bf_start = if self.hnsw.is_some() { self.indexed_count } else { 0 };
-        for i in bf_start..self.files.len() {
-            let dist = cosine_distance(query, &self.files[i].vector);
-            candidates.push((i, dist));
-        }
-
-        candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-        candidates.dedup_by_key(|(i, _)| *i);
-        candidates.iter().take(k)
-            .filter_map(|(i, _)| self.files.get(*i))
+        let store = FilesStore(&self.files);
+        self.hnsw
+            .search(query, k, k.max(50), &store, &cosine_distance)
+            .iter()
+            .filter_map(|(id, _)| self.files.get(*id as usize))
             .collect()
     }
 
@@ -187,7 +152,7 @@ impl IdentityStore {
         self.by_address.get(address).copied()
     }
 
-    /// Number of identity files in the store (indexed + unindexed).
+    /// Number of identity files in the store.
     pub fn len(&self) -> usize { self.files.len() }
     pub fn is_empty(&self) -> bool { self.files.is_empty() }
 
@@ -195,10 +160,6 @@ impl IdentityStore {
     pub fn iter(&self) -> impl Iterator<Item = &IdentityFile> {
         self.files.iter()
     }
-}
-
-fn cosine_distance(a: &[f32], b: &[f32]) -> f32 {
-    EmbedPoint(a.to_vec()).distance(&EmbedPoint(b.to_vec()))
 }
 
 // ─── Seed identity files ─────────────────────────────────────────────────────
@@ -302,5 +263,24 @@ mod tests {
         let store = IdentityStore::build(vec![]);
         let any_query = [0.5f32; 5];
         assert!(store.nearest(&any_query).is_none());
+    }
+
+    #[test]
+    fn insert_one_is_immediately_queryable() {
+        let mut store = IdentityStore::build(vec![]);
+        store.insert_one(IdentityFile {
+            address: "dworld://test/A".into(),
+            content: "A".into(),
+            vector: vec![1.0, 0.0, 0.0, 0.0, 0.0],
+            world_coord: None,
+        });
+        store.insert_one(IdentityFile {
+            address: "dworld://test/B".into(),
+            content: "B".into(),
+            vector: vec![0.0, 1.0, 0.0, 0.0, 0.0],
+            world_coord: None,
+        });
+        let hit = store.nearest(&[0.99, 0.01, 0.0, 0.0, 0.0]).unwrap();
+        assert_eq!(hit.address, "dworld://test/A");
     }
 }

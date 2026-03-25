@@ -13,8 +13,8 @@ serde      = { version = "1", features = ["derive"] }
 serde_json = "1"
 reqwest    = { version = "0.12", features = ["json"] }
 
-# HNSW approximate nearest neighbours — pure Rust, no unsafe
-instant-distance = "0.6"
+# HNSW approximate nearest neighbours — zero-dep incremental insert
+rvf-index = { workspace = true }
 async-trait = "0.1"
 thiserror   = "1"
 axum        = { workspace = true }
