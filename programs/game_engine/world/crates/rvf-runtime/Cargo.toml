@@ -1,0 +1,10 @@
+[package]
+name = "rvf-runtime"
+description = "RVF — Reality Volume File. Crash-safe, append-only, tamper-evident world file format."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+sha2      = { workspace = true }
+crc32fast = { workspace = true }
+thiserror = "1"

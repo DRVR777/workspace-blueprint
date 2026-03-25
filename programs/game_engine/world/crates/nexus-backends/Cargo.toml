@@ -1,0 +1,17 @@
+[package]
+name = "nexus-backends"
+description = "SemanticBackend trait + LocalBackend, RvfBackend, HybridBackend implementations."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+nexus-core     = { workspace = true }
+nexus-events   = { workspace = true }
+nexus-semantic = { workspace = true }
+rvf-runtime    = { workspace = true }
+tracing        = { workspace = true }
+thiserror      = "1"
+instant-distance = "0.6"
+
+[dev-dependencies]
+tokio = { workspace = true }

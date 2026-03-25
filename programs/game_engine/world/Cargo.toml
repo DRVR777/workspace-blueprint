@@ -8,6 +8,8 @@ members = [
     "crates/nexus-node",
     "crates/nexus-semantic",
     "crates/nexus-events",
+    "crates/rvf-runtime",
+    "crates/nexus-backends",
 ]
 
 [workspace.package]
@@ -23,6 +25,12 @@ nexus-spatial    = { path = "crates/nexus-spatial" }
 nexus-simulation = { path = "crates/nexus-simulation" }
 nexus-semantic   = { path = "crates/nexus-semantic" }
 nexus-events     = { path = "crates/nexus-events" }
+rvf-runtime      = { path = "crates/rvf-runtime" }
+nexus-backends   = { path = "crates/nexus-backends" }
+
+# Hashing
+sha2       = "0.10"
+crc32fast  = "1"
 
 # Layer 3: Physics
 rapier3d = { version = "0.22", features = ["simd-stable"] }
