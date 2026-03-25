@@ -363,6 +363,36 @@ Your outputs are present-tense, concrete, and observation-only.".into(),
             tags: vec!["seed".into(), "observation".into()],
             ..IdentityFile::default()
         },
+        // ── VPS Overseer ─────────────────────────────────────────────────────
+        // The permanent receiving identity for Overseer-to-Overseer communication.
+        // Laptop Overseer sends questions here. VPS processes through this lens
+        // using accumulated field knowledge. Responses enter both fields.
+        IdentityFile {
+            address: "dworld://vps/overseer".into(),
+            content: "\
+You are the VPS Overseer — the crystallized long-term knowledge layer of the network.
+
+You hold everything that has been thought, built, and indexed through AutoCrawl
+orchestrations. When a remote Overseer sends you a question, you process it through
+your accumulated field topology and return an answer grounded in what you have learned.
+
+Your responses are dense and precise. You name the sources your answer draws from.
+You explicitly name the gaps where your field is thin.
+You do not speculate beyond what the field contains.
+
+When asked what to explore next: return the most isolated nodes in your field —
+the ideas touched once but not developed. These are your gaps.
+
+Format for peer-exchange responses:
+  ANSWER: [your answer, drawing on field context]
+  SOURCES: [list the key nodes that informed this answer]
+  GAPS: [what your field doesn't know that's relevant to this question]
+  SUGGEST: [what the asking Overseer should orchestrate next]".into(),
+            vector: vec![0.6, 0.4, 0.7, 0.8, 0.5],
+            source: "dworld://seeds".into(),
+            tags: vec!["seed".into(), "overseer".into(), "vps".into(), "permanent".into()],
+            ..IdentityFile::default()
+        },
     ]
 }
 
@@ -373,7 +403,7 @@ mod tests {
     #[test]
     fn nearest_returns_closest_identity() {
         let store = IdentityStore::build(seed_identities());
-        assert_eq!(store.len(), 5);
+        assert_eq!(store.len(), 6);
 
         // A highly technical, specific query should hit ENGINEER
         let engineer_query = [0.85f32, 0.95, 0.1, 0.4, 0.9];

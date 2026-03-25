@@ -18,7 +18,7 @@ use nexus_core::types::{WorldStateSnapshot, PhysicsBody, ShapeParams, ChangeRequ
 use nexus_core::constants::{SECTOR_SIZE, QUIC_PORT};
 use nexus_spatial::SpatialIndex;
 use nexus_schema::SchemaRegistry;
-use nexus_semantic::{IdentityStore, HttpState, http_router, apply_layout};
+use nexus_semantic::{IdentityStore, HttpState, http_router, apply_layout, AgentRegistry};
 use nexus_semantic::identity::seed_identities;
 use nexus_semantic::llm::LocalEmbedClient;
 use nexus_semantic::worker::RoutingLoop;
@@ -173,10 +173,13 @@ async fn main() {
     let _routing_handle = Arc::clone(&routing_loop).spawn(rx);
     tracing::info!("Semantic routing loop started");
 
+    let agent_registry = Arc::new(AgentRegistry::new(Some("nexus-agents.json".into())));
+
     let http_state = Arc::new(HttpState {
         routing_loop,
         event_log,
         next_chain_id: Arc::new(AtomicU64::new(1)),
+        agent_registry,
     });
     let semantic_router = http_router(http_state);
 

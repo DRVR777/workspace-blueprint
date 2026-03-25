@@ -129,6 +129,25 @@ impl RoutingLoop {
         self.llm.embed_batch(texts).await.map_err(|e| e.to_string())
     }
 
+    /// Make one LLM completion call with an explicit identity and question text.
+    ///
+    /// Used by the Overseer query endpoint — the identity is the VPS Overseer's
+    /// content plus injected field context. The question becomes the packet data.
+    /// A synthetic SemanticPacket is created to satisfy the LlmClient contract.
+    pub async fn complete_for_overseer(
+        &self,
+        identity_content: &str,
+        question: &str,
+    ) -> Result<String, String> {
+        let synthetic = nexus_core::types::SemanticPacket::new(
+            0,
+            0,
+            nexus_core::types::PacketData::Text(question.to_string()),
+            "dworld://overseer/query".into(),
+        );
+        self.llm.complete(identity_content, &synthetic).await.map_err(|e| e.to_string())
+    }
+
     /// Insert one identity file into the store without a full rebuild.
     ///
     /// Uses `Arc::make_mut` to mutate the inner store in-place when there are no

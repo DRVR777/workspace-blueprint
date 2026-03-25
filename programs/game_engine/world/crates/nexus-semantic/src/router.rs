@@ -148,7 +148,7 @@ mod tests {
         match result {
             RouteResult::Continue(p) | RouteResult::Terminal { packet: p, .. } => {
                 assert_eq!(p.meta.len(), 1);
-                assert!(p.meta[0].identity.starts_with("dworld://council.local/identities/"));
+                assert!(p.meta[0].identity.starts_with("dworld://"));
                 assert!(p.meta[0].vector.is_some());
                 assert!(p.meta[0].timestamp_ms > 0);
             }

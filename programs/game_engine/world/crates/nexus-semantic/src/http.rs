@@ -40,6 +40,7 @@ use nexus_events::EventLog;
 use crate::identity::IdentityFile;
 
 use crate::worker::RoutingLoop;
+use crate::agents::{AgentRecord, AgentRegistry};
 
 // ─── Shared state ─────────────────────────────────────────────────────────────
 
@@ -49,6 +50,8 @@ pub struct HttpState {
     pub event_log: Arc<EventLog>,
     /// Monotonic chain ID counter. Each POST /packet increments this.
     pub next_chain_id: Arc<AtomicU64>,
+    /// Distributed agent directory. Councils register here; NEXUS routes messages.
+    pub agent_registry: Arc<AgentRegistry>,
 }
 
 // ─── Request / Response types ─────────────────────────────────────────────────
@@ -560,6 +563,297 @@ async fn post_ingest_propositions(
     .into_response()
 }
 
+// ─── Distributed agent network ────────────────────────────────────────────────
+//
+// The dworld:// protocol is a universal agent communication protocol.
+// Any Council on any machine registers its agents here.
+// Any registered agent can receive messages from any other registered agent.
+// NEXUS is the router — it finds the agent's home Council and forwards.
+//
+// Registration: POST /.dworld/agents/register
+// Discovery:    GET  /.dworld/agents
+// Messaging:    POST /.dworld/agents/{name}/message
+//               → NEXUS looks up council_url, forwards to {council_url}/api/agents/{name}/message
+//               → Council does the LLM call
+//               → Response is returned to the original caller
+
+/// POST /.dworld/agents/register
+///
+/// A Council registers its agents with this NEXUS node.
+/// Called on Council startup for each active agent.
+/// Auth required — only registered Councils can populate the directory.
+#[derive(Deserialize)]
+struct AgentRegisterRequest {
+    name: String,
+    address: String,
+    description: String,
+    #[serde(default)]
+    capabilities: Vec<String>,
+    council_url: String,
+}
+
+#[derive(Serialize)]
+struct AgentRegisterResponse {
+    registered: bool,
+    address: String,
+}
+
+async fn post_agent_register(
+    State(state): State<Arc<HttpState>>,
+    headers: HeaderMap,
+    Json(req): Json<AgentRegisterRequest>,
+) -> impl IntoResponse {
+    if !check_write_auth(&headers) {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+
+    let record = AgentRecord {
+        name: req.name.clone(),
+        address: req.address.clone(),
+        description: req.description,
+        capabilities: req.capabilities,
+        council_url: req.council_url,
+        last_seen: ts,
+    };
+
+    state.agent_registry.register(record);
+    tracing::info!("agent registered: {} at {}", req.name, req.address);
+
+    Json(AgentRegisterResponse {
+        registered: true,
+        address: req.address,
+    }).into_response()
+}
+
+/// GET /.dworld/agents
+///
+/// Returns all agents registered in the network directory.
+/// Public — any node can discover who is available.
+#[derive(Serialize)]
+struct AgentsResponse {
+    agents: Vec<AgentRecord>,
+    count: usize,
+}
+
+async fn get_agents(
+    State(state): State<Arc<HttpState>>,
+) -> impl IntoResponse {
+    let agents = state.agent_registry.all();
+    let count = agents.len();
+    Json(AgentsResponse { agents, count }).into_response()
+}
+
+/// POST /.dworld/agents/{name}/message
+///
+/// Route a message to a registered agent.
+/// NEXUS looks up the agent's home Council and forwards the message there.
+/// The Council does the LLM call and returns the response.
+///
+/// The receiving Council endpoint is: POST {council_url}/api/agents/{name}/message
+/// Protocol: { from, message, context, reply_to } → { answer, indexed_at }
+#[derive(Deserialize)]
+struct AgentMessageRequest {
+    /// dworld:// address of the sending agent
+    from: String,
+    /// The message content
+    message: String,
+    /// Relevant dworld:// addresses from the sender's field (context hints)
+    #[serde(default)]
+    context: Vec<String>,
+    /// dworld:// address to POST the reply to (optional async mode)
+    reply_to: Option<String>,
+}
+
+#[derive(Serialize)]
+struct AgentMessageResponse {
+    forwarded: bool,
+    agent: String,
+    council_url: String,
+    /// HTTP status from the receiving Council, or 0 if unreachable
+    status: u16,
+    /// Answer from the Council, if synchronous
+    answer: Option<serde_json::Value>,
+}
+
+async fn post_agent_message(
+    State(state): State<Arc<HttpState>>,
+    headers: HeaderMap,
+    Path(name): Path<String>,
+    Json(req): Json<AgentMessageRequest>,
+) -> impl IntoResponse {
+    if !check_write_auth(&headers) {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+
+    let record = match state.agent_registry.get(&name) {
+        Some(r) => r,
+        None => {
+            tracing::warn!("agent message: agent '{name}' not found in registry");
+            return StatusCode::NOT_FOUND.into_response();
+        }
+    };
+
+    let forward_url = format!("{}/api/agents/{}/message", record.council_url, name);
+    let body = serde_json::json!({
+        "from": req.from,
+        "message": req.message,
+        "context": req.context,
+        "reply_to": req.reply_to,
+    });
+
+    tracing::info!("routing message from {} → {} at {}", req.from, name, forward_url);
+
+    let http_client = reqwest::Client::new();
+    match http_client
+        .post(&forward_url)
+        .timeout(std::time::Duration::from_secs(30))
+        .json(&body)
+        .send()
+        .await
+    {
+        Ok(resp) => {
+            let status = resp.status().as_u16();
+            let answer = resp.json::<serde_json::Value>().await.ok();
+            Json(AgentMessageResponse {
+                forwarded: true,
+                agent: name,
+                council_url: record.council_url,
+                status,
+                answer,
+            }).into_response()
+        }
+        Err(e) => {
+            tracing::warn!("agent message forward failed for {name}: {e}");
+            Json(AgentMessageResponse {
+                forwarded: false,
+                agent: name,
+                council_url: record.council_url,
+                status: 0,
+                answer: None,
+            }).into_response()
+        }
+    }
+}
+
+// ─── Overseer-to-Overseer query ───────────────────────────────────────────────
+//
+// POST /.dworld/overseer/query
+//
+// The VPS Overseer receives questions from remote Overseers (laptop, etc.).
+// Pipeline:
+//   1. Embed the question → find k=9 nearest nodes (field context)
+//   2. Build prompt: VPS Overseer identity + field context injected
+//   3. LLM call → answer grounded in accumulated field knowledge
+//   4. Index the exchange in the VPS field (permanent memory)
+//   5. Return: answer + source addresses + new field address
+//
+// This is the phone call. The exchange is permanently indexed in both fields.
+
+#[derive(Deserialize)]
+struct OverseerQueryRequest {
+    question: String,
+    /// dworld:// address of the asking Overseer
+    source_overseer: String,
+    /// Optional additional context from the asking side
+    context: Option<String>,
+}
+
+#[derive(Serialize)]
+struct OverseerQueryResponse {
+    answer: String,
+    /// dworld:// addresses of nodes that informed the answer
+    sources: Vec<String>,
+    /// Address where this exchange was indexed in the VPS field
+    new_address: String,
+}
+
+async fn post_overseer_query(
+    State(state): State<Arc<HttpState>>,
+    headers: HeaderMap,
+    Json(req): Json<OverseerQueryRequest>,
+) -> impl IntoResponse {
+    if !check_write_auth(&headers) {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+
+    // ── 1. Embed the question ─────────────────────────────────────────────────
+    let question_vec = match state.routing_loop.llm_embed(&req.question).await {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::error!("overseer query embed failed: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+
+    // ── 2. Find nearest field nodes — the VPS's accumulated knowledge ─────────
+    let nearest = state.routing_loop.nearest_k(&question_vec, 9);
+    let sources: Vec<String> = nearest.iter().map(|n| n.address.clone()).collect();
+
+    let field_context = nearest.iter()
+        .map(|n| format!("[{}]\n{}", n.address, &n.content[..n.content.len().min(300)]))
+        .collect::<Vec<_>>()
+        .join("\n\n---\n\n");
+
+    // ── 3. VPS Overseer identity + injected field context ────────────────────
+    let overseer_content = state.routing_loop
+        .get_identity("dworld://vps/overseer")
+        .map(|id| id.content)
+        .unwrap_or_else(|| {
+            "You are the VPS Overseer. Answer from the field context provided.".into()
+        });
+
+    let mut full_identity = format!(
+        "{overseer_content}\n\n## Field context (k=9 nearest to the question):\n\n{field_context}"
+    );
+    if let Some(ref ctx) = req.context {
+        full_identity.push_str(&format!("\n\n## Additional context from {}: {ctx}", req.source_overseer));
+    }
+
+    // ── 4. LLM call ──────────────────────────────────────────────────────────
+    let answer = match state.routing_loop.complete_for_overseer(&full_identity, &req.question).await {
+        Ok(a) => a,
+        Err(e) => {
+            tracing::error!("overseer complete failed: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+
+    // ── 5. Index the exchange in the VPS field ───────────────────────────────
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    let new_address = format!("dworld://overseer/exchange/{ts}");
+
+    let exchange_text = format!(
+        "Peer query from {}:\nQ: {}\n\nA: {answer}",
+        req.source_overseer, req.question
+    );
+
+    if let Ok(v) = state.routing_loop.llm_embed(&exchange_text).await {
+        state.routing_loop.index_file(crate::identity::IdentityFile {
+            address: new_address.clone(),
+            content: exchange_text,
+            vector: v,
+            source: req.source_overseer.clone(),
+            tags: vec!["overseer-exchange".into(), "peer-query".into()],
+            ..crate::identity::IdentityFile::default()
+        }).await;
+    }
+
+    tracing::info!(
+        "overseer exchange indexed: {} ({} sources)",
+        new_address, sources.len()
+    );
+
+    Json(OverseerQueryResponse { answer, sources, new_address }).into_response()
+}
+
 /// GET /.dworld/field/gaps
 ///
 /// Returns the most isolated (least-explored) regions of the HNSW field.
@@ -798,6 +1092,12 @@ pub fn router(state: Arc<HttpState>) -> Router {
         .route("/.dworld/field/node/{*address}", get(get_field_node))
         // Council → NEXUS bridge
         .route("/.dworld/ingest/propositions", post(post_ingest_propositions))
+        // Distributed agent network
+        .route("/.dworld/agents", get(get_agents))
+        .route("/.dworld/agents/register", post(post_agent_register))
+        .route("/.dworld/agents/{name}/message", post(post_agent_message))
+        // Overseer-to-Overseer protocol
+        .route("/.dworld/overseer/query", post(post_overseer_query))
         // Catch-all manifest resolver — must come last
         .route("/.dworld/{*path}", get(get_manifest))
         .with_state(state)
@@ -824,6 +1124,7 @@ mod tests {
             routing_loop,
             event_log: log,
             next_chain_id: Arc::new(AtomicU64::new(1)),
+            agent_registry: Arc::new(crate::agents::AgentRegistry::new(None)),
         })
     }
 

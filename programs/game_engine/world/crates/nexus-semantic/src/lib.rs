@@ -28,6 +28,7 @@ pub mod worker;
 pub mod http;
 pub mod layout;
 pub mod reformation;
+pub mod agents;
 
 pub use identity::{IdentityFile, IdentityStore};
 pub use llm::{LlmClient, MockLlmClient};
@@ -37,3 +38,4 @@ pub use worker::{RoutingLoop, extract_continuation};
 pub use http::{HttpState, router as http_router};
 pub use layout::{apply_layout, force_directed_layout};
 pub use reformation::{DriftDetector, reform_identity};
+pub use agents::AgentRegistry;

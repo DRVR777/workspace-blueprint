@@ -165,7 +165,7 @@ mod tests {
         let store  = IdentityStore::build(seed_identities());
         let laid   = apply_layout(&store, 3);
 
-        assert_eq!(laid.len(), 5);
+        assert_eq!(laid.len(), 6);
         for file in laid.iter() {
             assert!(
                 file.world_coord.is_some(),
