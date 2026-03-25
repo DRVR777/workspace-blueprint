@@ -135,7 +135,9 @@ impl EventLog {
             CREATE INDEX IF NOT EXISTS events_chain
                 ON events(chain_id);
             CREATE INDEX IF NOT EXISTS events_timestamp
-                ON events(timestamp_ms);",
+                ON events(timestamp_ms);
+            CREATE INDEX IF NOT EXISTS events_identity
+                ON events(identity, timestamp_ms);",
         )
         .map_err(EventLogError::Sqlite)
     }
@@ -224,6 +226,77 @@ impl EventLog {
 
     pub fn is_empty(&self) -> Result<bool, EventLogError> {
         Ok(self.len()? == 0)
+    }
+
+    /// The most recent `limit` EVENT records for a specific identity address,
+    /// newest first. Only returns EVENT records (record_type = 0).
+    /// Used by DriftDetector to check per-identity quality trends.
+    pub fn recent_events_for_identity(
+        &self,
+        address: &str,
+        limit: usize,
+    ) -> Result<Vec<EventRecord>, EventLogError> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT record_type, timestamp_ms, chain_id, packet_id, hop_count,
+                        identity, output, world_x, world_y, world_z, quality
+                 FROM events
+                 WHERE identity = ?1 AND record_type = 0
+                 ORDER BY timestamp_ms DESC LIMIT ?2",
+            )
+            .map_err(EventLogError::Sqlite)?;
+        collect_records(stmt.query_map(params![address, limit as i64], row_to_record))
+    }
+
+    /// All distinct identity addresses that appear in EVENT records.
+    /// Used by DriftDetector to enumerate identities without a full table scan.
+    pub fn distinct_identities(&self) -> Result<Vec<String>, EventLogError> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT DISTINCT identity FROM events WHERE record_type = 0",
+            )
+            .map_err(EventLogError::Sqlite)?;
+        let rows = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(EventLogError::Sqlite)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(EventLogError::Sqlite)?;
+        Ok(rows)
+    }
+
+    /// Write a SIGNAL record to the log.
+    ///
+    /// Called by the reformation system (bone 4) to record that an identity
+    /// file's content was rewritten. The full history of reformations is
+    /// immutable and auditable via the event log.
+    ///
+    /// `address`  — dworld:// address of the reformed identity.
+    /// `message`  — human-readable description of what triggered the signal.
+    /// `quality`  — quality score at the time of reformation (mean of failing window).
+    pub fn record_signal(
+        &self,
+        address: &str,
+        message: &str,
+        quality: f32,
+    ) -> Result<i64, EventLogError> {
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as i64;
+        let record = EventRecord {
+            record_type:    RecordType::Signal,
+            timestamp_ms:   ts as u64,
+            chain_id:       0,
+            packet_id:      0,
+            hop_count:      0,
+            identity:       address.to_string(),
+            output:         message.to_string(),
+            world_position: None,
+            quality:        Some(quality),
+        };
+        self.append(&record)
     }
 }
 

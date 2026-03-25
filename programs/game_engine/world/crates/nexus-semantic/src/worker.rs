@@ -150,6 +150,16 @@ impl RoutingLoop {
         *self.store.write().unwrap() = Arc::new(new_store);
     }
 
+    /// Atomically replace the identity store with a reformed version.
+    ///
+    /// Called by the reformation system (bone 4) after apply_layout has been
+    /// run on the updated store. This is what causes identities to move in 3D
+    /// space — the new store has updated world_coords from the fresh layout run.
+    /// Write lock held < 1ms (single Arc swap, no allocation under the lock).
+    pub fn apply_reformed_store(&self, new_store: IdentityStore) {
+        self.swap_store(new_store);
+    }
+
     // ── Packet lifecycle ──────────────────────────────────────────────────────
 
     async fn handle_packet(&self, packet: SemanticPacket) {
