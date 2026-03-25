@@ -122,8 +122,12 @@ impl RoutingLoop {
         self.llm.embed(text).await.map_err(|e| e.to_string())
     }
 
-    /// Embed `content` and insert it as a new identity file into the store.
-    /// Returns the new identity's address.
+    /// Insert one identity file into the store without a full rebuild.
+    ///
+    /// Uses `Arc::make_mut` to mutate the inner store in-place when there are no
+    /// other holders of the Arc, or to clone-on-write when workers hold snapshots.
+    /// The new file is immediately queryable (brute-forced against the unindexed
+    /// tail). HNSW auto-rebuilds when the unindexed tail reaches the threshold.
     pub async fn index_output(
         &self,
         address: String,
@@ -136,10 +140,9 @@ impl RoutingLoop {
             vector,
             world_coord: None,
         };
-        let mut identities: Vec<IdentityFile> =
-            self.current_store().iter().cloned().collect();
-        identities.push(new_identity);
-        self.swap_store(IdentityStore::build(identities));
+        // Write lock held only for the insert_one call — no rebuild unless threshold hit.
+        let mut write_guard = self.store.write().unwrap();
+        Arc::make_mut(&mut *write_guard).insert_one(new_identity);
         tracing::debug!("field grew via index_output: {address}");
     }
 
@@ -200,13 +203,11 @@ impl RoutingLoop {
                 world_coord: None, // layout assigns in bone 3c
             };
 
-            // Rebuild store with the new identity appended.
-            // O(n log n) at current scale — acceptable for bone 3a.
-            // Bone 3c introduces incremental HNSW insert.
-            let mut identities: Vec<IdentityFile> =
-                self.current_store().iter().cloned().collect();
-            identities.push(new_identity);
-            self.swap_store(IdentityStore::build(identities));
+            // Incremental insert — O(1) amortized (no full rebuild unless threshold hit).
+            {
+                let mut write_guard = self.store.write().unwrap();
+                Arc::make_mut(&mut *write_guard).insert_one(new_identity);
+            }
 
             tracing::debug!(
                 "field grew: {addr} indexed (store size: {n})",
