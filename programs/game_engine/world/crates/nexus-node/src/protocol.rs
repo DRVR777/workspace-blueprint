@@ -459,5 +459,5 @@ pub fn decode_spatial_manifest(payload: &[u8]) -> Option<SpatialManifest> {
     }
     let agent   = read_opt_str(payload, &mut pos)?;
     let payment = read_opt_str(payload, &mut pos)?;
-    Some(SpatialManifest { world_id, geometry, surface, agent, payment })
+    Some(SpatialManifest { world_id, geometry, surface, agent, payment, semantic_identity: None })
 }

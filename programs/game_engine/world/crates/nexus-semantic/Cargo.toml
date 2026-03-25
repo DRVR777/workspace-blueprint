@@ -17,6 +17,8 @@ reqwest    = { version = "0.12", features = ["json"] }
 instant-distance = "0.6"
 async-trait = "0.1"
 thiserror   = "1"
+axum        = { workspace = true }
+tower       = { workspace = true }
 
 # Local embedding model — AllMiniLML6V2 (384D), ~90 MB download on first use
 # default features include ort-download-binaries-native-tls + hf-hub-native-tls

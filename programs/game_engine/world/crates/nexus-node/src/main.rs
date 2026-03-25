@@ -18,9 +18,16 @@ use nexus_core::types::{WorldStateSnapshot, PhysicsBody, ShapeParams, ChangeRequ
 use nexus_core::constants::{SECTOR_SIZE, QUIC_PORT};
 use nexus_spatial::SpatialIndex;
 use nexus_schema::SchemaRegistry;
+use nexus_semantic::{IdentityStore, HttpState, http_router};
+use nexus_semantic::identity::seed_identities;
+use nexus_semantic::llm::LocalEmbedClient;
+use nexus_semantic::worker::RoutingLoop;
+use nexus_events::EventLog;
 
 use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
 use tokio::sync::{RwLock, mpsc};
+use axum;
 
 use clients::ClientManager;
 
@@ -77,7 +84,12 @@ async fn main() {
         .and_then(|s| s.parse().ok())
         .unwrap_or(9001);
 
-    tracing::info!("NEXUS node starting on port {}", port);
+    let semantic_port: u16 = std::env::args()
+        .nth(2)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(9002);
+
+    tracing::info!("NEXUS node starting on port {} (semantic HTTP: {})", port, semantic_port);
 
     // Load schema registry from world/schemas/ (env override: NEXUS_SCHEMAS_DIR)
     let schemas_dir = std::env::var("NEXUS_SCHEMAS_DIR")
@@ -132,6 +144,41 @@ async fn main() {
     let quic_action_tx = action_tx.clone();
     let quic_clients = client_manager.clone();
 
+    // ── Semantic network bootstrap ────────────────────────────────────────────
+    // Seed the identity store with architecture documents, then start the
+    // RoutingLoop.  The HTTP server makes the field callable from outside.
+    let event_log = Arc::new(
+        EventLog::open("nexus-events.db").unwrap_or_else(|_| {
+            tracing::warn!("Could not open nexus-events.db; using in-memory log");
+            EventLog::open_in_memory().unwrap()
+        })
+    );
+
+    let llm: Arc<dyn nexus_semantic::LlmClient> = {
+        match LocalEmbedClient::new() {
+            Ok(c) => {
+                tracing::info!("Semantic: local embedding model loaded");
+                Arc::new(c)
+            }
+            Err(e) => {
+                tracing::warn!("Semantic: local embed failed ({e}), using mock LLM");
+                Arc::new(nexus_semantic::MockLlmClient::new())
+            }
+        }
+    };
+
+    let seed_store = IdentityStore::build(seed_identities());
+    let (routing_loop, rx) = RoutingLoop::new(seed_store, llm, Arc::clone(&event_log));
+    let _routing_handle = Arc::clone(&routing_loop).spawn(rx);
+    tracing::info!("Semantic routing loop started");
+
+    let http_state = Arc::new(HttpState {
+        routing_loop,
+        event_log,
+        next_chain_id: Arc::new(AtomicU64::new(1)),
+    });
+    let semantic_router = http_router(http_state);
+
     tokio::select! {
         result = tick_loop::run(tick_state, action_rx, tick_clients) => {
             tracing::error!("Tick loop exited: {:?}", result);
@@ -141,6 +188,14 @@ async fn main() {
         }
         result = quic_server::run(QUIC_PORT, quic_state, quic_action_tx, quic_clients) => {
             tracing::error!("QUIC server exited: {:?}", result);
+        }
+        result = async {
+            let addr = std::net::SocketAddr::from(([0, 0, 0, 0], semantic_port));
+            let listener = tokio::net::TcpListener::bind(addr).await?;
+            tracing::info!("Semantic HTTP listening on :{semantic_port}");
+            axum::serve(listener, semantic_router).await
+        } => {
+            tracing::error!("Semantic HTTP server exited: {:?}", result);
         }
     }
 }
