@@ -122,6 +122,13 @@ impl RoutingLoop {
         self.llm.embed(text).await.map_err(|e| e.to_string())
     }
 
+    /// Embed multiple texts in one call. Uses the backend's batch path when available
+    /// (fastembed: true parallelism). Falls back to sequential for mock/other clients.
+    /// Used by the ingest handler to avoid per-proposition round-trips.
+    pub async fn llm_embed_batch(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>, String> {
+        self.llm.embed_batch(texts).await.map_err(|e| e.to_string())
+    }
+
     /// Insert one identity file into the store without a full rebuild.
     ///
     /// Uses `Arc::make_mut` to mutate the inner store in-place when there are no

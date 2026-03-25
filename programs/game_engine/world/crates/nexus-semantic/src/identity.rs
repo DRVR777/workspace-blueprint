@@ -254,6 +254,44 @@ impl IdentityStore {
 
         results.into_iter().skip(offset).take(limit).collect()
     }
+
+    /// Compute isolation scores for all non-seed identity files.
+    ///
+    /// For each file, finds its k nearest neighbors and computes the mean
+    /// cosine distance to those neighbors. A higher score means the node is
+    /// more isolated — a potential knowledge gap the Overseer should explore.
+    ///
+    /// Seed identities (source = "dworld://seeds") are structural nodes and
+    /// are excluded from gap analysis.
+    ///
+    /// Returns `(isolation_score, &IdentityFile)` pairs, unsorted.
+    /// The caller sorts by score descending to get the biggest gaps first.
+    pub fn isolation_scores(&self, k: usize) -> Vec<(f32, &IdentityFile)> {
+        let n = self.files.len();
+        if n < 2 || k == 0 { return vec![]; }
+        let k_clamped = k.min(n.saturating_sub(1));
+
+        self.files.iter()
+            .filter(|f| f.source != "dworld://seeds")
+            .map(|file| {
+                // Request k+1 to account for the file appearing as its own neighbor
+                let neighbors = self.nearest_k(&file.vector, k_clamped + 1);
+                let distances: Vec<f32> = neighbors.iter()
+                    .filter(|n| n.address != file.address)
+                    .take(k_clamped)
+                    .map(|n| cosine_distance(&file.vector, &n.vector))
+                    .collect();
+
+                let score = if distances.is_empty() {
+                    1.0 // only node in field — maximally isolated
+                } else {
+                    distances.iter().sum::<f32>() / distances.len() as f32
+                };
+
+                (score, file)
+            })
+            .collect()
+    }
 }
 
 // ─── Seed identity files ─────────────────────────────────────────────────────

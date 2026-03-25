@@ -491,33 +491,57 @@ async fn post_ingest_propositions(
         return StatusCode::UNAUTHORIZED.into_response();
     }
 
-    let mut addresses = Vec::with_capacity(req.propositions.len());
-    let mut tags_received = 0usize;
+    if req.propositions.is_empty() {
+        return Json(IngestPropositionsResponse {
+            indexed: 0,
+            addresses: vec![],
+            tags_received: 0,
+        }).into_response();
+    }
 
-    for (i, item) in req.propositions.iter().enumerate() {
-        let text = item.text();
-        let tags = item.tags();
-        tags_received += tags.len();
+    // ── Collect texts and count tags before embedding ─────────────────────────
+    let texts: Vec<&str> = req.propositions.iter().map(|p| p.text()).collect();
+    let tags_received: usize = req.propositions.iter().map(|p| p.tags().len()).sum();
+
+    // ── Batch embed — one fastembed call for all propositions ─────────────────
+    // In production (LocalEmbedClient / AnthropicClient) this is a single
+    // spawn_blocking call. fastembed processes the Vec internally with parallelism,
+    // ~3-5x faster than sequential for n > 10. Prevents bridge timeout at 80 props.
+    let vectors = match state.routing_loop.llm_embed_batch(&texts).await {
+        Ok(vs) => vs,
+        Err(e) => {
+            tracing::error!("ingest batch embed failed: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+
+    if vectors.len() != req.propositions.len() {
+        tracing::error!(
+            "embed_batch returned {} vectors for {} propositions",
+            vectors.len(), req.propositions.len()
+        );
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
+
+    // ── Build and index each IdentityFile ────────────────────────────────────
+    let mut addresses = Vec::with_capacity(req.propositions.len());
+
+    for (i, (item, vector)) in req.propositions.iter().zip(vectors).enumerate() {
+        if vector.is_empty() {
+            tracing::warn!("ingest: empty vector for prop {i}, skipping");
+            continue;
+        }
 
         let address = format!("{}/prop/{}", req.source_address, i);
 
-        // Embed text only — custom_vector stored separately, never pollutes routing.
-        let vector = match state.routing_loop.llm_embed(text).await {
-            Ok(v) => v,
-            Err(e) => {
-                tracing::error!("ingest embed failed for prop {i}: {e}");
-                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-            }
-        };
-
         let file = IdentityFile {
             address: address.clone(),
-            content: text.to_string(),
+            content: item.text().to_string(),
             vector,
             source: item.source()
                 .unwrap_or(&req.source_address)
                 .to_string(),
-            tags: tags.to_vec(),
+            tags: item.tags().to_vec(),
             custom_vector: item.custom_vector().cloned(),
             custom_model: item.custom_model().map(str::to_string),
             searchable: item.searchable(),
@@ -534,6 +558,82 @@ async fn post_ingest_propositions(
         tags_received,
     })
     .into_response()
+}
+
+/// GET /.dworld/field/gaps
+///
+/// Returns the most isolated (least-explored) regions of the HNSW field.
+/// Used by the Overseer to decide WHAT to orchestrate next — instead of
+/// LLM-hallucinating topics, AutoCrawl follows actual topological gaps.
+///
+/// Query params:
+///   k — neighborhood size for isolation computation (default 5)
+///   n — number of gap nodes to return (default 20, max 100)
+///
+/// isolation_score: mean cosine distance to k nearest neighbors.
+///   0.0 = maximally clustered (dense region, well-explored)
+///   1.0 = maximally isolated (sparse region, knowledge gap)
+///
+/// Seed identities are excluded — they're structural, not knowledge gaps.
+#[derive(Deserialize)]
+struct GapsQuery {
+    #[serde(default = "default_gaps_k")]
+    k: usize,
+    #[serde(default = "default_gaps_n")]
+    n: usize,
+}
+
+fn default_gaps_k() -> usize { 5 }
+fn default_gaps_n() -> usize { 20 }
+
+#[derive(Serialize)]
+struct GapEntry {
+    address: String,
+    content: String,
+    isolation_score: f32,
+    tags: Vec<String>,
+    created_at: u64,
+}
+
+#[derive(Serialize)]
+struct GapsResponse {
+    gaps: Vec<GapEntry>,
+    field_size: usize,
+    /// Mean isolation across all non-seed nodes — field-wide density indicator.
+    mean_isolation: f32,
+}
+
+async fn get_field_gaps(
+    State(state): State<Arc<HttpState>>,
+    axum::extract::Query(params): axum::extract::Query<GapsQuery>,
+) -> impl IntoResponse {
+    let n = params.n.min(100);
+    let store = state.routing_loop.current_store();
+    let field_size = store.len();
+
+    let mut scores = store.isolation_scores(params.k);
+
+    let mean_isolation = if scores.is_empty() {
+        0.0
+    } else {
+        scores.iter().map(|(s, _)| *s).sum::<f32>() / scores.len() as f32
+    };
+
+    // Sort descending: highest isolation (biggest gap) first
+    scores.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+
+    let gaps = scores.into_iter()
+        .take(n)
+        .map(|(score, file)| GapEntry {
+            address: file.address.clone(),
+            content: file.content.clone(),
+            isolation_score: score,
+            tags: file.tags.clone(),
+            created_at: file.created_at,
+        })
+        .collect();
+
+    Json(GapsResponse { gaps, field_size, mean_isolation }).into_response()
 }
 
 /// GET /.dworld/field/search
@@ -693,6 +793,7 @@ pub fn router(state: Arc<HttpState>) -> Router {
         .route("/.dworld/identities/{name}", get(get_identity))
         .route("/.dworld/field", post(post_field))
         .route("/.dworld/field/nearest", get(get_nearest))
+        .route("/.dworld/field/gaps", get(get_field_gaps))
         .route("/.dworld/field/search", get(get_field_search))
         .route("/.dworld/field/node/{*address}", get(get_field_node))
         // Council → NEXUS bridge
@@ -1019,6 +1120,111 @@ mod tests {
         // We need to access it from state - but state was moved into router...
         // This verifies via the response only; store growth is covered by worker tests.
         let _ = initial_size; // accepted: store growth tested in worker::tests
+    }
+
+    // ── gaps endpoint tests ────────────────────────────────────────────────────
+
+    /// Insert 10 propositions: 8 clustered tightly, 2 isolated far away.
+    /// Verify the 2 isolated ones appear in the top positions of /gaps.
+    #[tokio::test]
+    async fn field_gaps_returns_most_isolated_nodes() {
+        let state = make_state();
+
+        // Insert directly via index_file — bypasses HTTP to control vectors precisely.
+        // Cosine distance is direction-only (magnitude doesn't matter), so we need
+        // truly orthogonal directions, not just different magnitudes.
+        //
+        // Cluster: 8 nodes in direction [1, 1, 0, 0, 0] — tiny offsets keep them distinct.
+        //   Cosine distance between any two ≈ 0 (same direction).
+        //
+        // Isolated: 2 nodes in direction [0, 0, 0, 0, 1] — orthogonal to cluster.
+        //   Cosine distance cluster→isolated = 1.0 (fully orthogonal).
+        //   Cosine distance isolated[0]→isolated[1] ≈ 0 (same direction).
+        //
+        // Expected isolation: cluster ≈ 0, isolated ≈ 0.5+ (far from cluster, close to each other).
+        for i in 0..8 {
+            let offset = i as f32 * 0.01;
+            state.routing_loop.index_file(crate::identity::IdentityFile {
+                address: format!("dworld://test/gaps/cluster/{i}"),
+                content: format!("clustered proposition {i}"),
+                vector: vec![1.0 + offset, 1.0, 0.0, 0.0, 0.0],
+                source: "dworld://test".into(),
+                tags: vec!["cluster".into()],
+                ..crate::identity::IdentityFile::default()
+            }).await;
+        }
+        for i in 0..2 {
+            let offset = i as f32 * 0.01;
+            state.routing_loop.index_file(crate::identity::IdentityFile {
+                address: format!("dworld://test/gaps/isolated/{i}"),
+                content: format!("isolated proposition {i}"),
+                vector: vec![0.0, 0.0, 0.0, 0.0, 1.0 + offset],
+                source: "dworld://test".into(),
+                tags: vec!["isolated".into()],
+                ..crate::identity::IdentityFile::default()
+            }).await;
+        }
+
+        let app = router(state);
+        let req = Request::builder()
+            .uri("/.dworld/field/gaps?k=3&n=5")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let bytes = axum::body::to_bytes(resp.into_body(), 8192).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+
+        let gaps = json["gaps"].as_array().unwrap();
+        assert!(!gaps.is_empty(), "gaps should not be empty");
+
+        // Isolated nodes should have higher isolation scores than clustered ones
+        // Check the top result contains "isolated" in its address
+        let top_address = gaps[0]["address"].as_str().unwrap();
+        assert!(
+            top_address.contains("isolated"),
+            "top gap should be an isolated node, got: {top_address}"
+        );
+
+        // Scores should be descending
+        let scores: Vec<f64> = gaps.iter()
+            .filter_map(|g| g["isolation_score"].as_f64())
+            .collect();
+        for w in scores.windows(2) {
+            assert!(w[0] >= w[1], "isolation_score not descending: {} < {}", w[0], w[1]);
+        }
+
+        // mean_isolation and field_size present
+        assert!(json["field_size"].as_u64().unwrap() > 0);
+        assert!(json["mean_isolation"].as_f64().is_some());
+    }
+
+    /// Gaps endpoint returns empty gaps (not an error) when field has only seeds.
+    #[tokio::test]
+    async fn field_gaps_empty_when_only_seeds() {
+        let state = make_state();
+        let app = router(state);
+
+        let req = Request::builder()
+            .uri("/.dworld/field/gaps?k=3&n=10")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let bytes = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        // Seeds excluded → gaps should be empty or minimal
+        let gaps = json["gaps"].as_array().unwrap();
+        // All seed identities have source "dworld://seeds" — none should appear
+        for g in gaps {
+            let addr = g["address"].as_str().unwrap_or("");
+            assert!(
+                !addr.contains("council.local/identities"),
+                "seed identity leaked into gaps: {addr}"
+            );
+        }
     }
 
     // ── field/search and field/node tests ─────────────────────────────────────

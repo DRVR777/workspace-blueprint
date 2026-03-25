@@ -21,6 +21,17 @@ pub trait LlmClient: Send + Sync {
     /// Phase 1+ (fastembed): AllMiniLML6V2 → 384D dense vector.
     async fn embed(&self, text: &str) -> Result<Vec<f32>, LlmError>;
 
+    /// Embed multiple texts in one call. Default: sequential (correct for all backends).
+    /// Override in fastembed backends for true batching — fastembed processes Vec<S>
+    /// in parallel internally, ~3-5× faster than sequential for n > 10.
+    async fn embed_batch(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>, LlmError> {
+        let mut results = Vec::with_capacity(texts.len());
+        for text in texts {
+            results.push(self.embed(text).await?);
+        }
+        Ok(results)
+    }
+
     /// Make one completion call: inject `identity_content` as the system
     /// identity and the packet's current data + hop chain as the user message.
     ///
@@ -174,6 +185,21 @@ impl LlmClient for LocalEmbedClient {
         .map_err(|e| LlmError::Http(format!("spawn_blocking panicked: {e}")))?
     }
 
+    /// Batch override — passes all texts to fastembed in one call.
+    /// fastembed processes Vec<S> internally with parallelism, ~3-5× faster than sequential.
+    async fn embed_batch(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>, LlmError> {
+        let embedder = self.embedder.clone();
+        let owned: Vec<String> = texts.iter().map(|s| s.to_string()).collect();
+        tokio::task::spawn_blocking(move || {
+            let mut guard = embedder.lock().unwrap();
+            let refs: Vec<&str> = owned.iter().map(|s| s.as_str()).collect();
+            guard.embed(refs, None)
+                .map_err(|e| LlmError::Http(e.to_string()))
+        })
+        .await
+        .map_err(|e| LlmError::Http(format!("spawn_blocking panicked: {e}")))?
+    }
+
     async fn complete(
         &self,
         identity_content: &str,
@@ -225,6 +251,19 @@ impl LlmClient for AnthropicClient {
                 .embed(vec![text.as_str()], None)
                 .map_err(|e| LlmError::Http(e.to_string()))?;
             Ok::<Vec<f32>, LlmError>(embeddings.into_iter().next().unwrap_or_default())
+        })
+        .await
+        .map_err(|e| LlmError::Http(format!("spawn_blocking panicked: {e}")))?
+    }
+
+    async fn embed_batch(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>, LlmError> {
+        let embedder = self.embedder.clone();
+        let owned: Vec<String> = texts.iter().map(|s| s.to_string()).collect();
+        tokio::task::spawn_blocking(move || {
+            let mut guard = embedder.lock().unwrap();
+            let refs: Vec<&str> = owned.iter().map(|s| s.as_str()).collect();
+            guard.embed(refs, None)
+                .map_err(|e| LlmError::Http(e.to_string()))
         })
         .await
         .map_err(|e| LlmError::Http(format!("spawn_blocking panicked: {e}")))?
