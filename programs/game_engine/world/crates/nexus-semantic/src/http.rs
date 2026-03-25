@@ -345,6 +345,63 @@ async fn get_nearest(
     Json(NearestResponse { neighbors }).into_response()
 }
 
+// ─── Ingest endpoint ──────────────────────────────────────────────────────────
+//
+// POST /.dworld/ingest/propositions
+//
+// The bridge between theC0UNCIL and the NEXUS semantic field.
+//
+// The Council calls this after AutoCrawl decomposition, posting atomically
+// decomposed propositions from its knowledge graph.  NEXUS re-embeds each
+// proposition with AllMiniLML6V2 (384D in production, 5D mock in tests)
+// and inserts it into the live HNSW field.  The Council's Gemini 768D
+// embeddings are NOT used here — each side owns its own embedding space.
+//
+// Body:
+//   { "propositions": ["...", ...], "source_address": "dworld://orchestration/{id}" }
+// Response:
+//   { "indexed": 5, "addresses": ["dworld://orchestration/{id}/prop/0", ...] }
+
+#[derive(Deserialize)]
+struct IngestPropositionsRequest {
+    propositions: Vec<String>,
+    source_address: String,
+}
+
+#[derive(Serialize)]
+struct IngestPropositionsResponse {
+    indexed: usize,
+    addresses: Vec<String>,
+}
+
+async fn post_ingest_propositions(
+    State(state): State<Arc<HttpState>>,
+    Json(req): Json<IngestPropositionsRequest>,
+) -> impl IntoResponse {
+    let mut addresses = Vec::with_capacity(req.propositions.len());
+
+    for (i, proposition) in req.propositions.iter().enumerate() {
+        let address = format!("{}/prop/{}", req.source_address, i);
+        let vector = match state.routing_loop.llm_embed(proposition).await {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::error!("ingest embed failed for prop {i}: {e}");
+                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            }
+        };
+        state.routing_loop
+            .index_output(address.clone(), proposition.clone(), vector)
+            .await;
+        addresses.push(address);
+    }
+
+    Json(IngestPropositionsResponse {
+        indexed: addresses.len(),
+        addresses,
+    })
+    .into_response()
+}
+
 // ─── Router ───────────────────────────────────────────────────────────────────
 
 /// Build the axum Router for the semantic HTTP API.
@@ -361,6 +418,8 @@ pub fn router(state: Arc<HttpState>) -> Router {
         .route("/.dworld/identities/{name}", get(get_identity))
         .route("/.dworld/field", post(post_field))
         .route("/.dworld/field/nearest", get(get_nearest))
+        // Council → NEXUS bridge
+        .route("/.dworld/ingest/propositions", post(post_ingest_propositions))
         .with_state(state)
 }
 
@@ -556,6 +615,88 @@ mod tests {
         let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         let neighbors = json["neighbors"].as_array().unwrap();
         assert!(!neighbors.is_empty(), "should return at least one neighbor");
+    }
+
+    #[tokio::test]
+    async fn ingest_propositions_indexes_all_and_are_retrievable() {
+        let state = make_state();
+        let app = router(Arc::clone(&state));
+
+        let body = serde_json::json!({
+            "propositions": [
+                "semantic routing connects knowledge graphs",
+                "embeddings position concepts in vector space",
+                "identity files are lenses in the semantic field",
+                "cosine similarity measures conceptual proximity",
+                "the HNSW index enables approximate nearest neighbor search"
+            ],
+            "source_address": "dworld://orchestration/test-001"
+        })
+        .to_string();
+
+        let req = Request::builder()
+            .method(http::Method::POST)
+            .uri("/.dworld/ingest/propositions")
+            .header("content-type", "application/json")
+            .body(Body::from(body))
+            .unwrap();
+
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let bytes = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(json["indexed"], 5, "expected 5 propositions indexed");
+        let addresses = json["addresses"].as_array().unwrap();
+        assert_eq!(addresses.len(), 5);
+        assert_eq!(
+            addresses[0].as_str().unwrap(),
+            "dworld://orchestration/test-001/prop/0"
+        );
+
+        // Verify all 5 are retrievable via nearest-neighbor.
+        // Reproduce the MockLlmClient's deterministic 5D projection for prop/0.
+        let text = "semantic routing connects knowledge graphs";
+        const DIMS: usize = 5;
+        let mut accum = [0.0f32; DIMS];
+        let mut total = [0u64; DIMS];
+        for (i, byte) in text.bytes().enumerate() {
+            accum[i % DIMS] += byte as f32;
+            total[i % DIMS] += 1;
+        }
+        let v_param: String = (0..DIMS)
+            .map(|i| {
+                let val = if total[i] > 0 {
+                    (accum[i] / (total[i] as f32 * 255.0)).clamp(0.0, 1.0)
+                } else {
+                    0.5
+                };
+                format!("{val:.6}")
+            })
+            .collect::<Vec<_>>()
+            .join(",");
+
+        let req2 = Request::builder()
+            .uri(format!("/.dworld/field/nearest?v={v_param}&k=6"))
+            .body(Body::empty())
+            .unwrap();
+
+        let resp2 = app.oneshot(req2).await.unwrap();
+        assert_eq!(resp2.status(), StatusCode::OK);
+
+        let bytes2 = axum::body::to_bytes(resp2.into_body(), 4096).await.unwrap();
+        let json2: serde_json::Value = serde_json::from_slice(&bytes2).unwrap();
+        let neighbors: Vec<&str> = json2["neighbors"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|n| n["address"].as_str())
+            .collect();
+
+        assert!(
+            neighbors.contains(&"dworld://orchestration/test-001/prop/0"),
+            "expected prop/0 in nearest neighbors, got: {neighbors:?}"
+        );
     }
 
     #[tokio::test]
