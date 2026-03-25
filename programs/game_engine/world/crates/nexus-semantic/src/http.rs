@@ -362,14 +362,70 @@ async fn get_nearest(
 // and inserts it into the live HNSW field.  The Council's Gemini 768D
 // embeddings are NOT used here — each side owns its own embedding space.
 //
-// Body:
-//   { "propositions": ["...", ...], "source_address": "dworld://orchestration/{id}" }
+// Two accepted body shapes (backward-compatible):
+//
+//   Simple (v1):
+//     { "propositions": ["text1", "text2"], "source_address": "dworld://..." }
+//
+//   Rich (v2):
+//     { "propositions": [{ "text": "...", "tags": ["depth:2", "branch:0", "topic:oracle"],
+//                          "searchable": true, "custom_vector": null }],
+//       "source_address": "dworld://..." }
+//
+// Tags are indexed into the address query string for future filtered search.
+// Embedding always uses `text` only — tags never contaminate the vector.
+// custom_vector accepted but currently ignored (NEXUS re-embeds at 384D).
+//
 // Response:
-//   { "indexed": 5, "addresses": ["dworld://orchestration/{id}/prop/0", ...] }
+//   { "indexed": 5, "addresses": ["dworld://orchestration/{id}/prop/0", ...],
+//     "tags_received": 12 }
+
+/// Rich proposition entry — v2 ingest format.
+#[derive(Deserialize)]
+struct PropositionEntry {
+    text: String,
+    #[serde(default)]
+    tags: Vec<String>,
+    /// Caller's pre-computed vector (ignored for now — NEXUS re-embeds at 384D).
+    /// Reserved for future: if provided and dim matches, skip re-embedding.
+    #[allow(dead_code)]
+    custom_vector: Option<Vec<f32>>,
+    /// Whether to include in nearest-neighbor search (default true).
+    /// Reserved for future filtered search. Currently all entries are searchable.
+    #[serde(default = "default_searchable")]
+    #[allow(dead_code)]
+    searchable: bool,
+}
+
+fn default_searchable() -> bool { true }
+
+/// Accept either a bare string or a rich PropositionEntry.
+/// This lets the Council upgrade its format without a flag day.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum PropositionItem {
+    Text(String),
+    Entry(PropositionEntry),
+}
+
+impl PropositionItem {
+    fn text(&self) -> &str {
+        match self {
+            Self::Text(s) => s,
+            Self::Entry(e) => &e.text,
+        }
+    }
+    fn tags(&self) -> &[String] {
+        match self {
+            Self::Text(_) => &[],
+            Self::Entry(e) => &e.tags,
+        }
+    }
+}
 
 #[derive(Deserialize)]
 struct IngestPropositionsRequest {
-    propositions: Vec<String>,
+    propositions: Vec<PropositionItem>,
     source_address: String,
 }
 
@@ -377,6 +433,8 @@ struct IngestPropositionsRequest {
 struct IngestPropositionsResponse {
     indexed: usize,
     addresses: Vec<String>,
+    /// Total number of tags received across all propositions.
+    tags_received: usize,
 }
 
 /// Check bearer token for write endpoints.
@@ -407,10 +465,22 @@ async fn post_ingest_propositions(
     }
 
     let mut addresses = Vec::with_capacity(req.propositions.len());
+    let mut tags_received = 0usize;
 
-    for (i, proposition) in req.propositions.iter().enumerate() {
+    for (i, item) in req.propositions.iter().enumerate() {
+        let text = item.text();
+        let tags = item.tags();
+        tags_received += tags.len();
+
+        // Address encodes provenance: base/prop/{i} with tag summary in tracing.
+        // Tag-filtered search is future work — tags logged now, indexed later.
         let address = format!("{}/prop/{}", req.source_address, i);
-        let vector = match state.routing_loop.llm_embed(proposition).await {
+
+        if !tags.is_empty() {
+            tracing::debug!("ingest prop {i} tags: {tags:?}");
+        }
+
+        let vector = match state.routing_loop.llm_embed(text).await {
             Ok(v) => v,
             Err(e) => {
                 tracing::error!("ingest embed failed for prop {i}: {e}");
@@ -418,7 +488,7 @@ async fn post_ingest_propositions(
             }
         };
         state.routing_loop
-            .index_output(address.clone(), proposition.clone(), vector)
+            .index_output(address.clone(), text.to_string(), vector)
             .await;
         addresses.push(address);
     }
@@ -426,6 +496,7 @@ async fn post_ingest_propositions(
     Json(IngestPropositionsResponse {
         indexed: addresses.len(),
         addresses,
+        tags_received,
     })
     .into_response()
 }
@@ -650,13 +721,17 @@ mod tests {
         let state = make_state();
         let app = router(Arc::clone(&state));
 
+        // Mix v1 (bare string) and v2 (rich entry) in same request — backward compat.
         let body = serde_json::json!({
             "propositions": [
                 "semantic routing connects knowledge graphs",
-                "embeddings position concepts in vector space",
-                "identity files are lenses in the semantic field",
+                { "text": "embeddings position concepts in vector space",
+                  "tags": ["depth:1", "branch:0", "topic:semantic"] },
+                { "text": "identity files are lenses in the semantic field",
+                  "tags": ["depth:1", "branch:0"] },
                 "cosine similarity measures conceptual proximity",
-                "the HNSW index enables approximate nearest neighbor search"
+                { "text": "the HNSW index enables approximate nearest neighbor search",
+                  "tags": ["depth:2", "topic:hnsw"] }
             ],
             "source_address": "dworld://orchestration/test-001"
         })
@@ -675,6 +750,7 @@ mod tests {
         let bytes = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
         let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(json["indexed"], 5, "expected 5 propositions indexed");
+        assert_eq!(json["tags_received"], 7, "expected 7 tags total: 3+2+2 across rich entries");
         let addresses = json["addresses"].as_array().unwrap();
         assert_eq!(addresses.len(), 5);
         assert_eq!(
