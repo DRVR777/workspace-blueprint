@@ -181,6 +181,12 @@ impl IdentityStore {
         self.by_address.get(address).and_then(|&i| self.files.get(i))
     }
 
+    /// Return the slot index of an identity file by address.
+    /// Used by the layout algorithm to map neighbor addresses back to indices.
+    pub(crate) fn index_of(&self, address: &str) -> Option<usize> {
+        self.by_address.get(address).copied()
+    }
+
     /// Number of identity files in the store (indexed + unindexed).
     pub fn len(&self) -> usize { self.files.len() }
     pub fn is_empty(&self) -> bool { self.files.is_empty() }
